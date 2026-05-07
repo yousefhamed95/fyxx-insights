@@ -128,21 +128,46 @@ section[data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
 }
 
 /* Pills / segmented control */
-button[kind="segmented_control"] {
+button[kind="segmented_control"],
+button[kind="pills"],
+[data-testid="stPills"] button,
+[data-testid="stSegmentedControl"] button {
     background: #15151A !important;
     color: #A1A1AA !important;
     border: 1px solid #2A2A33 !important;
     border-radius: 999px !important;
+    font-weight: 500 !important;
+    transition: all 0.15s ease !important;
+    padding: 6px 14px !important;
 }
-button[kind="segmented_control"][aria-pressed="true"] {
+button[kind="segmented_control"]:hover,
+button[kind="pills"]:hover,
+[data-testid="stPills"] button:hover,
+[data-testid="stSegmentedControl"] button:hover {
+    border-color: #19E3B6 !important;
+    color: #19E3B6 !important;
+}
+button[kind="segmented_control"][aria-pressed="true"],
+button[kind="pills"][aria-pressed="true"],
+[data-testid="stPills"] button[aria-pressed="true"],
+[data-testid="stSegmentedControl"] button[aria-pressed="true"] {
     background: #19E3B6 !important;
     color: #07221C !important;
     border-color: #19E3B6 !important;
+    box-shadow: 0 0 16px rgba(25,227,182,0.35) !important;
+    font-weight: 600 !important;
 }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {
     background-color: #19E3B6 !important;
     color: #07221C !important;
     border-radius: 6px !important;
+}
+/* Date input range */
+[data-testid="stDateInput"] input {
+    background-color: #15151A !important;
+    color: #F4F4F5 !important;
+    border: 1px solid #2A2A33 !important;
+    border-radius: 10px !important;
 }
 
 /* Tabs */
@@ -674,13 +699,43 @@ with st.sidebar:
     history_start_year = min(selected_years)
     history_end_year = max(selected_years)
 
-    st.markdown("<h3 style='margin-top:18px'>Period scope</h3>", unsafe_allow_html=True)
-    scope_options = ["YTD", "Full year", "Last 30 days", "Last 12 months", "Custom"]
-    scope = st.radio("Scope", scope_options, index=0, label_visibility="collapsed")
+    st.markdown("<h3 style='margin-top:18px'>Quick period</h3>", unsafe_allow_html=True)
+    quick_options = ["Today", "Yesterday", "This Week", "This Month",
+                     "YTD", "Last 7 Days", "Last 30 Days", "Last 12 Months",
+                     "Full Year", "Custom"]
+    try:
+        scope = st.pills(
+            "Scope", quick_options, default="Today",
+            selection_mode="single", label_visibility="collapsed",
+            key="scope_pills",
+        )
+    except Exception:
+        try:
+            scope = st.segmented_control(
+                "Scope", quick_options, default="Today",
+                label_visibility="collapsed", key="scope_seg",
+            )
+        except Exception:
+            scope = st.radio(
+                "Scope", quick_options, index=0,
+                label_visibility="collapsed",
+            )
+    if not scope:
+        scope = "Today"
 
     if scope == "Custom":
-        custom_start = st.date_input("From", value=date(current_year, 1, 1))
-        custom_end = st.date_input("To", value=today_local)
+        st.markdown("<h3 style='margin-top:14px'>Custom range</h3>", unsafe_allow_html=True)
+        date_range = st.date_input(
+            "Range",
+            value=(date(current_year, 1, 1), today_local),
+            label_visibility="collapsed",
+            key="custom_range",
+        )
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            custom_start, custom_end = date_range
+        else:
+            custom_start = date_range if not isinstance(date_range, tuple) else date_range[0]
+            custom_end = today_local
     else:
         custom_start = custom_end = None
 
@@ -726,10 +781,17 @@ if not today_live.empty:
 # Channel list (built from data)
 all_channels = sorted(df_hist["channel"].dropna().unique().tolist()) if not df_hist.empty else []
 with channels_placeholder.container():
-    selected_channels = st.multiselect(
-        "Channels", all_channels, default=all_channels,
-        label_visibility="collapsed", key="ch_pick",
-    )
+    try:
+        selected_channels = st.pills(
+            "Channels", all_channels, default=all_channels,
+            selection_mode="multi", label_visibility="collapsed",
+            key="ch_pills",
+        )
+    except Exception:
+        selected_channels = st.multiselect(
+            "Channels", all_channels, default=all_channels,
+            label_visibility="collapsed", key="ch_pick",
+        )
 
 if not selected_channels:
     selected_channels = all_channels
@@ -743,31 +805,56 @@ df = df_hist[df_hist["channel"].isin(selected_channels)].copy()
 # =============================================================================
 def scope_window(scope, today, sel_years, custom_start, custom_end):
     """Returns (curr_start, curr_end, prev_start, prev_end, label)."""
-    main_year = max(sel_years)
+    main_year = max(sel_years) if sel_years else today.year
+    if scope == "Today":
+        y = today - timedelta(days=1)
+        return today, today, y, y, "Today"
+    if scope == "Yesterday":
+        y = today - timedelta(days=1)
+        d2 = y - timedelta(days=1)
+        return y, y, d2, d2, "Yesterday"
+    if scope == "This Week":
+        cs = today - timedelta(days=today.weekday())
+        elapsed = (today - cs).days
+        ps = cs - timedelta(days=7)
+        pe = ps + timedelta(days=elapsed)
+        return cs, today, ps, pe, "This Week"
+    if scope == "This Month":
+        cs = today.replace(day=1)
+        elapsed = (today - cs).days
+        prev_last = cs - timedelta(days=1)
+        ps = prev_last.replace(day=1)
+        pe = ps + timedelta(days=elapsed)
+        return cs, today, ps, pe, "This Month"
+    if scope == "Last 7 Days":
+        cs = today - timedelta(days=6)
+        ps = cs - timedelta(days=7)
+        pe = cs - timedelta(days=1)
+        return cs, today, ps, pe, "Last 7 Days"
     if scope == "YTD":
         cs = date(main_year, 1, 1)
         ce = today if main_year == today.year else date(main_year, 12, 31)
         ps = date(main_year - 1, 1, 1)
         pe = ce.replace(year=main_year - 1)
         return cs, ce, ps, pe, f"YTD {main_year}"
-    if scope == "Full year":
+    if scope == "Full Year":
         cs = date(main_year, 1, 1)
         ce = date(main_year, 12, 31)
         ps = date(main_year - 1, 1, 1)
         pe = date(main_year - 1, 12, 31)
         return cs, ce, ps, pe, f"FY {main_year}"
-    if scope == "Last 30 days":
+    if scope == "Last 30 Days":
         cs = today - timedelta(days=29)
         ce = today
         ps = cs - timedelta(days=30)
         pe = cs - timedelta(days=1)
-        return cs, ce, ps, pe, "Last 30 days"
-    if scope == "Last 12 months":
+        return cs, ce, ps, pe, "Last 30 Days"
+    if scope == "Last 12 Months":
         cs = today - timedelta(days=365)
         ce = today
         ps = cs - timedelta(days=365)
         pe = cs - timedelta(days=1)
-        return cs, ce, ps, pe, "Last 12 months"
+        return cs, ce, ps, pe, "Last 12 Months"
     cs = custom_start or today.replace(month=1, day=1)
     ce = custom_end or today
     span = (ce - cs).days
