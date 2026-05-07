@@ -245,17 +245,30 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 
 /* Hero */
 .hero {
-    display: flex; align-items: flex-end; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; flex-wrap: wrap;
     padding-bottom: 14px;
     border-bottom: 1px solid #1F1F26;
     margin-bottom: 22px;
 }
+.hero-left {
+    display: flex; align-items: center; gap: 18px;
+}
+.hero-logo {
+    background: #000;
+    border: 1px solid #1F1F26;
+    border-radius: 12px;
+    padding: 10px 18px;
+    height: 56px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.hero-logo img { height: 32px; width: auto; display: block; }
 .hero-eyebrow {
     color: #71717A; font-size: 11.5px; text-transform: uppercase;
-    letter-spacing: 0.18em; font-weight: 600; margin-bottom: 8px;
+    letter-spacing: 0.18em; font-weight: 600; margin-bottom: 6px;
 }
-.hero h1 { margin: 0; font-size: 34px !important; }
+.hero h1 { margin: 0; font-size: 30px !important; line-height: 1.15; }
 .hero-accent { color: #19E3B6; }
 
 /* KPI cards (custom — richer than st.metric) */
@@ -897,11 +910,18 @@ df_prev = slice_df(df, prev_start, prev_end)
 # HERO HEADER
 # =============================================================================
 now_local = datetime.now(ZoneInfo(TZ))
+hero_logo_html = (
+    f"<div class='hero-logo'><img src='{logo_uri}' alt='Fyxx'/></div>"
+    if logo_uri else ""
+)
 st.markdown(textwrap.dedent(f"""
 <div class='hero'>
+<div class='hero-left'>
+{hero_logo_html}
 <div>
 <div class='hero-eyebrow'>{info['company_name']} · Executive Insights</div>
 <h1><span class='hero-accent'>{scope_label}</span><span style='color:#52525B;font-weight:400'> · multi-year view</span></h1>
+</div>
 </div>
 <div style='text-align:right'>
 <span class='live-pill'><span class='live-dot'></span> Live</span>
