@@ -699,49 +699,6 @@ with st.sidebar:
     history_start_year = min(selected_years)
     history_end_year = max(selected_years)
 
-    st.markdown("<h3 style='margin-top:18px'>Quick period</h3>", unsafe_allow_html=True)
-    quick_options = ["Today", "Yesterday", "This Week", "This Month",
-                     "YTD", "Last 7 Days", "Last 30 Days", "Last 12 Months",
-                     "Full Year", "Custom"]
-    try:
-        scope = st.pills(
-            "Scope", quick_options, default="Today",
-            selection_mode="single", label_visibility="collapsed",
-            key="scope_pills",
-        )
-    except Exception:
-        try:
-            scope = st.segmented_control(
-                "Scope", quick_options, default="Today",
-                label_visibility="collapsed", key="scope_seg",
-            )
-        except Exception:
-            scope = st.radio(
-                "Scope", quick_options, index=0,
-                label_visibility="collapsed",
-            )
-    if not scope:
-        scope = "Today"
-
-    if scope == "Custom":
-        st.markdown("<h3 style='margin-top:14px'>Custom range</h3>", unsafe_allow_html=True)
-        date_range = st.date_input(
-            "Range",
-            value=(date(current_year, 1, 1), today_local),
-            label_visibility="collapsed",
-            key="custom_range",
-        )
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            custom_start, custom_end = date_range
-        else:
-            custom_start = date_range if not isinstance(date_range, tuple) else date_range[0]
-            custom_end = today_local
-    else:
-        custom_start = custom_end = None
-
-    st.markdown("<h3 style='margin-top:18px'>Channels</h3>", unsafe_allow_html=True)
-    channels_placeholder = st.empty()
-
     st.markdown("---")
     if st.button("◌  Refresh now", use_container_width=True):
         st.cache_data.clear()
@@ -780,21 +737,79 @@ if not today_live.empty:
 
 # Channel list (built from data)
 all_channels = sorted(df_hist["channel"].dropna().unique().tolist()) if not df_hist.empty else []
-with channels_placeholder.container():
+
+
+# =============================================================================
+# TOP SLICER BAR — period + channels live at the top of the report
+# =============================================================================
+st.markdown(
+    "<div style='margin-top:-8px;margin-bottom:6px;color:#71717A;"
+    "font-size:11px;font-weight:600;text-transform:uppercase;"
+    "letter-spacing:0.18em'>Period</div>",
+    unsafe_allow_html=True,
+)
+quick_options = ["Today", "Yesterday", "This Week", "This Month",
+                 "YTD", "Last 7 Days", "Last 30 Days", "Last 12 Months",
+                 "Full Year", "Custom"]
+try:
+    scope = st.pills(
+        "Scope", quick_options, default="Today",
+        selection_mode="single", label_visibility="collapsed",
+        key="scope_pills_top",
+    )
+except Exception:
     try:
-        selected_channels = st.pills(
-            "Channels", all_channels, default=all_channels,
-            selection_mode="multi", label_visibility="collapsed",
-            key="ch_pills",
+        scope = st.segmented_control(
+            "Scope", quick_options, default="Today",
+            label_visibility="collapsed", key="scope_seg_top",
         )
     except Exception:
-        selected_channels = st.multiselect(
-            "Channels", all_channels, default=all_channels,
-            label_visibility="collapsed", key="ch_pick",
+        scope = st.radio(
+            "Scope", quick_options, index=0,
+            label_visibility="collapsed",
         )
+if not scope:
+    scope = "Today"
+
+if scope == "Custom":
+    cr_col1, cr_col2, _ = st.columns([1, 1, 3])
+    with cr_col1:
+        custom_start_picked = st.date_input(
+            "From", value=date(current_year, 1, 1), key="custom_from",
+        )
+    with cr_col2:
+        custom_end_picked = st.date_input(
+            "To", value=today_local, key="custom_to",
+        )
+    custom_start, custom_end = custom_start_picked, custom_end_picked
+else:
+    custom_start = custom_end = None
+
+st.markdown(
+    "<div style='margin-top:14px;margin-bottom:6px;color:#71717A;"
+    "font-size:11px;font-weight:600;text-transform:uppercase;"
+    "letter-spacing:0.18em'>Channels</div>",
+    unsafe_allow_html=True,
+)
+try:
+    selected_channels = st.pills(
+        "Channels", all_channels, default=all_channels,
+        selection_mode="multi", label_visibility="collapsed",
+        key="ch_pills_top",
+    )
+except Exception:
+    selected_channels = st.multiselect(
+        "Channels", all_channels, default=all_channels,
+        label_visibility="collapsed", key="ch_pick_top",
+    )
 
 if not selected_channels:
     selected_channels = all_channels
+
+st.markdown(
+    "<div style='height:1px;background:#1F1F26;margin:18px 0 14px 0'></div>",
+    unsafe_allow_html=True,
+)
 
 # Apply channel + year filters
 df = df_hist[df_hist["channel"].isin(selected_channels)].copy()
