@@ -1,0 +1,16 @@
+# Never commit credentials
+.odoo-creds.env
+*.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
