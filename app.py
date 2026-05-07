@@ -10,6 +10,7 @@ Data source: Odoo XMLRPC. 100% READ-ONLY (search_read only).
 """
 import os
 import base64
+import textwrap
 import xmlrpc.client
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -794,28 +795,18 @@ df_prev = slice_df(df, prev_start, prev_end)
 # HERO HEADER
 # =============================================================================
 now_local = datetime.now(ZoneInfo(TZ))
-st.markdown(
-    f"""
-    <div class='hero'>
-        <div>
-            <div class='hero-eyebrow'>{info['company_name']} · Executive Insights</div>
-            <h1>
-                <span class='hero-accent'>{scope_label}</span>
-                <span style='color:#52525B;font-weight:400'> · multi-year view</span>
-            </h1>
-        </div>
-        <div style='text-align:right'>
-            <span class='live-pill'>
-                <span class='live-dot'></span> Live
-            </span>
-            <div style='color:#71717A;font-size:11.5px;margin-top:8px'>
-                Updated {now_local.strftime("%H:%M:%S")} · {TZ}
-            </div>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown(textwrap.dedent(f"""
+<div class='hero'>
+<div>
+<div class='hero-eyebrow'>{info['company_name']} · Executive Insights</div>
+<h1><span class='hero-accent'>{scope_label}</span><span style='color:#52525B;font-weight:400'> · multi-year view</span></h1>
+</div>
+<div style='text-align:right'>
+<span class='live-pill'><span class='live-dot'></span> Live</span>
+<div style='color:#71717A;font-size:11.5px;margin-top:8px'>Updated {now_local.strftime("%H:%M:%S")} · {TZ}</div>
+</div>
+</div>
+""").strip(), unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -836,18 +827,18 @@ def year_card(year, df_year, df_prev_year, is_current=False):
                        f"{arrow} {abs(pct):.1f}%</span> "
                        f"<span style='color:#71717A;font-size:12px'>vs {year-1}</span></div>")
     cls = "year-card is-current" if is_current else "year-card"
-    return f"""
-    <div class='{cls}'>
-        <div class='year-label'>{year} Performance</div>
-        <div class='year-value'>{fmt_money(rev, CURRENCY, compact=True)}</div>
-        <div class='year-meta'>
-            Orders: <b style='color:#E4E4E7'>{orders:,}</b><br>
-            Avg order: <b style='color:#E4E4E7'>{fmt_money(aov, CURRENCY)}</b><br>
-            Customers: <b style='color:#E4E4E7'>{customers:,}</b>
-        </div>
-        {growth_html}
-    </div>
-    """
+    return (
+        f"<div class='{cls}'>"
+        f"<div class='year-label'>{year} Performance</div>"
+        f"<div class='year-value'>{fmt_money(rev, CURRENCY, compact=True)}</div>"
+        f"<div class='year-meta'>"
+        f"Orders: <b style='color:#E4E4E7'>{orders:,}</b><br>"
+        f"Avg order: <b style='color:#E4E4E7'>{fmt_money(aov, CURRENCY)}</b><br>"
+        f"Customers: <b style='color:#E4E4E7'>{customers:,}</b>"
+        f"</div>"
+        f"{growth_html}"
+        f"</div>"
+    )
 
 
 # Pull each selected year's window (YTD up to today's date for the current year,
@@ -902,14 +893,15 @@ prev_customers = df_prev["customer"].nunique() if not df_prev.empty else 0
 
 
 def kpi_card(label, value, sub_html="", foot=""):
-    return f"""
-    <div class='kpi'>
-        <div class='kpi-label'>{label}</div>
-        <div class='kpi-value'>{value}</div>
-        <div class='kpi-sub'>{sub_html}</div>
-        {f"<div class='kpi-foot'>{foot}</div>" if foot else ""}
-    </div>
-    """
+    foot_html = f"<div class='kpi-foot'>{foot}</div>" if foot else ""
+    return (
+        f"<div class='kpi'>"
+        f"<div class='kpi-label'>{label}</div>"
+        f"<div class='kpi-value'>{value}</div>"
+        f"<div class='kpi-sub'>{sub_html}</div>"
+        f"{foot_html}"
+        f"</div>"
+    )
 
 
 kpi_html = "<div class='kpi-grid' style='margin-top:18px'>"
