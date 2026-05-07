@@ -914,7 +914,7 @@ st.markdown(textwrap.dedent(f"""
 # =============================================================================
 # YEAR-PERFORMANCE CARDS  (mirrors the reference Power BI shot)
 # =============================================================================
-def year_card(year, df_year, df_prev_year, is_current=False):
+def year_card(year, df_year, df_prev_year, period_label, is_current=False):
     rev = float(df_year["amount_total"].sum()) if not df_year.empty else 0.0
     orders = len(df_year)
     customers = df_year["customer"].nunique() if not df_year.empty else 0
@@ -931,7 +931,7 @@ def year_card(year, df_year, df_prev_year, is_current=False):
     cls = "year-card is-current" if is_current else "year-card"
     return (
         f"<div class='{cls}'>"
-        f"<div class='year-label'>{year} Performance</div>"
+        f"<div class='year-label'>{year} · {period_label}</div>"
         f"<div class='year-value'>{fmt_money(rev, CURRENCY, compact=True)}</div>"
         f"<div class='year-meta'>"
         f"Orders: <b style='color:#E4E4E7'>{orders:,}</b><br>"
@@ -943,40 +943,46 @@ def year_card(year, df_year, df_prev_year, is_current=False):
     )
 
 
-# Pull each selected year's window (YTD up to today's date for the current year,
-# full year otherwise — keeps comparisons fair)
-def year_slice(d, year, today):
-    if d.empty:
-        return d
-    if year == today.year:
-        return d[(d["dt_local"].dt.year == year) & (d["day"] <= today)]
-    return d[d["dt_local"].dt.year == year]
+# Year cards now follow the active period slicer — for each selected year,
+# the same calendar window as the current scope is shown (apples-to-apples).
+def _shift_year(d, year):
+    """Replace the year of a date, mapping Feb 29 -> Feb 28 for non-leap years."""
+    try:
+        return d.replace(year=year)
+    except ValueError:
+        return d.replace(year=year, day=28)
 
 
-def year_slice_to_date(d, year, today):
-    """For non-current years: same Jan 1 → today.month/today.day window."""
+def year_window_for_scope(year, today, cs, ce):
+    """Translate the current scope window (cs..ce) into the target year."""
+    # If the scope window spans multiple years (e.g., Last 12 Months),
+    # fall back to a calendar-year slice for that target year.
+    if cs.year != ce.year:
+        ws = date(year, 1, 1)
+        we = date(year, 12, 31)
+    else:
+        ws = _shift_year(cs, year)
+        we = _shift_year(ce, year)
+    # Cap at today for the current calendar year (no future data).
+    if year == today.year and we > today:
+        we = today
+    return ws, we
+
+
+def year_card_slice(d, year, today, cs, ce):
     if d.empty:
         return d
-    if year == today.year:
-        return year_slice(d, year, today)
-    cap = date(year, today.month, today.day) if (
-        today.month != 2 or today.day != 29
-    ) else date(year, 2, 28)
-    return d[(d["dt_local"].dt.year == year) & (d["day"] <= cap)]
+    ws, we = year_window_for_scope(year, today, cs, ce)
+    return d[(d["day"] >= ws) & (d["day"] <= we)]
 
 
 cards_html = ["<div class='kpi-grid' style='margin-bottom:6px'>"]
 years_for_cards = sorted(selected_years)
 for y in years_for_cards:
     is_current = (y == today_local.year)
-    # Fair comparison: YTD-style for everyone when scope is YTD; full year otherwise
-    if scope == "YTD" or is_current:
-        d_y = year_slice_to_date(df, y, today_local)
-        d_prev = year_slice_to_date(df, y - 1, today_local)
-    else:
-        d_y = df[df["year"] == y]
-        d_prev = df[df["year"] == y - 1]
-    cards_html.append(year_card(y, d_y, d_prev, is_current))
+    d_y = year_card_slice(df, y, today_local, curr_start, curr_end)
+    d_prev = year_card_slice(df, y - 1, today_local, curr_start, curr_end)
+    cards_html.append(year_card(y, d_y, d_prev, scope_label, is_current))
 cards_html.append("</div>")
 st.markdown("\n".join(cards_html), unsafe_allow_html=True)
 
