@@ -283,9 +283,44 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 }
 .kpi::before {
     content: ""; position: absolute; left: 0; top: 0; bottom: 0;
-    width: 3px; background: linear-gradient(180deg, #19E3B6, transparent);
-    opacity: 0.85;
+    width: 2.5px;
+    background: linear-gradient(180deg,
+        rgba(25,227,182,0.32),
+        rgba(25,227,182,0.08));
+    border-radius: 0 2px 2px 0;
 }
+.kpi::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    width: 2.5px;
+    height: 36%;
+    background: linear-gradient(180deg,
+        transparent 0%,
+        rgba(25,227,182,0.45) 25%,
+        #19E3B6 50%,
+        rgba(25,227,182,0.45) 75%,
+        transparent 100%);
+    border-radius: 2px;
+    box-shadow: 0 0 12px 1.5px rgba(25,227,182,0.55),
+                0 0 22px 0 rgba(25,227,182,0.25);
+    filter: blur(0.3px);
+    animation: kpi-beam 3.8s cubic-bezier(0.42, 0.0, 0.25, 1) infinite;
+    pointer-events: none;
+    z-index: 1;
+}
+@keyframes kpi-beam {
+    0%   { top: -36%; opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+}
+/* Stagger the beam across the 4 KPI cards in the grid for a cascade feel */
+.kpi-grid .kpi:nth-of-type(1)::after { animation-delay: 0s;    }
+.kpi-grid .kpi:nth-of-type(2)::after { animation-delay: 0.55s; }
+.kpi-grid .kpi:nth-of-type(3)::after { animation-delay: 1.10s; }
+.kpi-grid .kpi:nth-of-type(4)::after { animation-delay: 1.65s; }
+.kpi-grid .kpi:nth-of-type(5)::after { animation-delay: 2.20s; }
 .kpi-label {
     color: #71717A; font-size: 10.5px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 10px;
