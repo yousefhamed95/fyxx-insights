@@ -294,7 +294,7 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     align-items: center;
     height: 100%;
     width: max-content;
-    animation: ticker-scroll 80s linear infinite;
+    animation: ticker-scroll 40s linear infinite;
 }
 .ticker-track:hover { animation-play-state: paused; }
 @keyframes ticker-scroll {
