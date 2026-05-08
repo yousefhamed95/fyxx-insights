@@ -68,14 +68,24 @@ CUSTOM_CSS = """
 /* Hide streamlit chrome */
 #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
 
-/* Page background */
-.stApp { background: radial-gradient(1200px 600px at 80% -10%, rgba(25,227,182,0.06), transparent 60%), #0A0A0B; }
+/* Page background — layered aurora glow, fixed so it doesn't scroll */
+.stApp {
+    background:
+        radial-gradient(900px 520px at 12% -8%,  rgba(25, 227, 182, 0.10), transparent 65%),
+        radial-gradient(820px 460px at 88%  4%,  rgba(56, 189, 248, 0.09), transparent 62%),
+        radial-gradient(720px 500px at 50% 110%, rgba(167,139,250, 0.06), transparent 70%),
+        #0A0A0B;
+    background-attachment: fixed;
+}
 .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1480px; }
 
-/* Typography */
+/* Typography — refined editorial */
 html, body, [class*="css"] {
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: #F4F4F5;
+    /* tabular figures — digits all the same width so KPIs/tables don't jitter */
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
 }
 h1, h2, h3, h4 {
     color: #F4F4F5;
@@ -84,8 +94,17 @@ h1, h2, h3, h4 {
 }
 h1 { font-size: 30px !important; }
 h2 { font-size: 18px !important; font-weight: 600 !important; color: #E4E4E7 !important; }
-h3 { font-size: 14px !important; font-weight: 600 !important; color: #A1A1AA !important;
-     text-transform: uppercase; letter-spacing: 0.08em; }
+h3 { font-size: 13.5px !important; font-weight: 700 !important; color: #A1A1AA !important;
+     text-transform: uppercase; letter-spacing: 0.10em; }
+
+/* The hero scope label uses a teal→blue gradient (Linear-style) */
+.hero-accent {
+    color: #19E3B6;
+    background: linear-gradient(90deg, #19E3B6 0%, #38BDF8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
@@ -354,13 +373,23 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     border: 1px solid rgba(161,161,170, 0.25);
 }
 
-/* Hero */
+/* Hero — animated gradient border using border-box trick (browser-safe) */
 .hero {
     display: flex; align-items: center; justify-content: space-between;
     gap: 18px; flex-wrap: wrap;
-    padding-bottom: 14px;
-    border-bottom: 1px solid #1F1F26;
+    padding: 14px 18px;
     margin-bottom: 22px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    background:
+        linear-gradient(160deg, #131318 0%, #0E0E13 100%) padding-box,
+        linear-gradient(135deg, #19E3B6, #38BDF8, #A78BFA, #38BDF8, #19E3B6) border-box;
+    background-size: auto, 300% 300%;
+    animation: hero-shimmer 12s linear infinite;
+}
+@keyframes hero-shimmer {
+    0%   { background-position: 0% 0%, 0% 50%; }
+    100% { background-position: 0% 0%, 300% 50%; }
 }
 .hero-left {
     display: flex; align-items: center; gap: 18px;
@@ -384,6 +413,13 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 
 /* KPI cards (custom — richer than st.metric) */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.kpi-spark-row {
+    margin-top: 10px;
+    height: 30px;
+    display: block;
+    opacity: 0.92;
+}
+.kpi-spark { display: block; width: 100%; }
 .kpi {
     background: linear-gradient(160deg, #131318 0%, #0E0E12 100%);
     border: 1px solid #23232B;
@@ -1604,17 +1640,84 @@ curr_customers = df_curr["customer"].nunique() if not df_curr.empty else 0
 prev_customers = df_prev["customer"].nunique() if not df_prev.empty else 0
 
 
-def kpi_card(label, value, sub_html="", foot=""):
+_SPARK_COUNTER = [0]
+
+
+def sparkline_svg(values, width=200, height=30, color="#19E3B6"):
+    """Inline SVG sparkline. Returns empty string if too few points."""
+    try:
+        vals = [float(v) for v in values if v is not None]
+    except Exception:
+        return ""
+    if len(vals) < 2:
+        return ""
+    vmin, vmax = min(vals), max(vals)
+    span = (vmax - vmin) if vmax > vmin else max(abs(vmax), 1.0)
+    n = len(vals)
+    pts = []
+    for i, v in enumerate(vals):
+        x = (i / (n - 1)) * (width - 4) + 2
+        y = height - ((v - vmin) / span) * (height - 8) - 4
+        pts.append((x, y))
+    line_d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    fill_pts = f"M{pts[0][0]:.1f},{pts[0][1]:.1f} " + " ".join(
+        f"L{x:.1f},{y:.1f}" for x, y in pts[1:]
+    ) + f" L{pts[-1][0]:.1f},{height-1:.1f} L{pts[0][0]:.1f},{height-1:.1f} Z"
+    _SPARK_COUNTER[0] += 1
+    fill_id = f"sk{_SPARK_COUNTER[0]}"
+    last_x, last_y = pts[-1]
+    return (
+        f"<svg class='kpi-spark' viewBox='0 0 {width} {height}' "
+        f"preserveAspectRatio='none'>"
+        f"<defs><linearGradient id='{fill_id}' x1='0' x2='0' y1='0' y2='1'>"
+        f"<stop offset='0%' stop-color='{color}' stop-opacity='0.30'/>"
+        f"<stop offset='100%' stop-color='{color}' stop-opacity='0'/>"
+        f"</linearGradient></defs>"
+        f"<path d='{fill_pts}' fill='url(#{fill_id})'/>"
+        f"<path d='{line_d}' stroke='{color}' stroke-width='1.6' fill='none' "
+        f"stroke-linecap='round' stroke-linejoin='round'/>"
+        f"<circle cx='{last_x:.1f}' cy='{last_y:.1f}' r='2.2' fill='{color}'/>"
+        f"</svg>"
+    )
+
+
+def kpi_card(label, value, sub_html="", foot="", spark=None, spark_color="#19E3B6"):
     foot_html = f"<div class='kpi-foot'>{foot}</div>" if foot else ""
+    spark_html = ""
+    if spark:
+        svg = sparkline_svg(spark, color=spark_color)
+        if svg:
+            spark_html = f"<div class='kpi-spark-row'>{svg}</div>"
     return (
         f"<div class='kpi'>"
         f"<div class='kpi-label'>{label}</div>"
         f"<div class='kpi-value'>{value}</div>"
         f"<div class='kpi-sub'>{sub_html}</div>"
+        f"{spark_html}"
         f"{foot_html}"
         f"</div>"
     )
 
+
+# Daily sparklines for the 4 main KPIs (only when the period spans 2+ days)
+_spark_rev = _spark_orders = _spark_aov = _spark_cust = None
+try:
+    if not df_curr.empty and df_curr["day"].nunique() > 1:
+        _daily_kpi = (df_curr.groupby("day")
+                      .agg(rev=("amount_total", "sum"),
+                           orders=("amount_total", "count"),
+                           cust=("customer", pd.Series.nunique))
+                      .sort_index()
+                      .reset_index())
+        _daily_kpi["aov"] = _daily_kpi.apply(
+            lambda r: r["rev"] / r["orders"] if r["orders"] else 0, axis=1
+        )
+        _spark_rev = _daily_kpi["rev"].tolist()
+        _spark_orders = _daily_kpi["orders"].tolist()
+        _spark_aov = _daily_kpi["aov"].tolist()
+        _spark_cust = _daily_kpi["cust"].tolist()
+except Exception:
+    pass
 
 kpi_html = "<div class='kpi-grid' style='margin-top:18px'>"
 kpi_html += kpi_card(
@@ -1622,24 +1725,28 @@ kpi_html += kpi_card(
     fmt_money(curr_rev, CURRENCY, compact=True),
     delta_html(curr_rev, prev_rev, "vs prior period"),
     f"Prior: {fmt_money(prev_rev, CURRENCY, compact=True)}",
+    spark=_spark_rev, spark_color="#19E3B6",
 )
 kpi_html += kpi_card(
     "Orders",
     f"{curr_orders:,}",
     delta_html(curr_orders, prev_orders, "vs prior period"),
     f"Prior: {prev_orders:,}",
+    spark=_spark_orders, spark_color="#38BDF8",
 )
 kpi_html += kpi_card(
     "Avg order value",
     fmt_money(curr_aov, CURRENCY) if curr_orders else "—",
     delta_html(curr_aov, prev_aov, "vs prior period"),
     f"Prior: {fmt_money(prev_aov, CURRENCY)}" if prev_aov else "",
+    spark=_spark_aov, spark_color="#A78BFA",
 )
 kpi_html += kpi_card(
     "Active customers",
     f"{curr_customers:,}",
     delta_html(curr_customers, prev_customers, "vs prior period"),
     f"Prior: {prev_customers:,}",
+    spark=_spark_cust, spark_color="#F5B544",
 )
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
@@ -1651,10 +1758,11 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 (tab_brief, tab_exec, tab_pace, tab_profit, tab_loss, tab_alerts, tab_trends,
  tab_channels, tab_customers, tab_cohorts, tab_team, tab_geo, tab_compare,
  tab_recent) = st.tabs(
-    ["  Brief  ", "  Executive Summary  ", "  Pacing  ", "  Profitability  ",
-     "  Loss Orders  ", "  Alerts  ", "  Trends  ", "  Channels  ",
-     "  Customers  ", "  Cohorts  ", "  Salespeople  ", "  Geography  ",
-     "  Compare  ", "  Live  "]
+    ["  ◆  Brief  ", "  ❖  Executive Summary  ", "  ▲  Pacing  ",
+     "  ◯  Profitability  ", "  ※  Loss Orders  ", "  ⚑  Alerts  ",
+     "  ⌁  Trends  ", "  ⌬  Channels  ", "  ◐  Customers  ",
+     "  ⟳  Cohorts  ", "  ★  Salespeople  ", "  ◉  Geography  ",
+     "  ⇋  Compare  ", "  ●  Live  "]
 )
 
 
