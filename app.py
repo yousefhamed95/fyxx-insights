@@ -2239,29 +2239,37 @@ with tab_geo:
     if df_curr.empty:
         st.info("No data in selected window.")
     else:
+        # Helper that handles NaN / None / non-numeric partner_id values
+        def _safe_pid(pid):
+            if pid is None or pd.isna(pid):
+                return None
+            try:
+                return int(pid)
+            except (TypeError, ValueError):
+                return None
+
+        def _lookup(pid, key):
+            ipid = _safe_pid(pid)
+            if ipid is None:
+                return None
+            return addr_map.get(ipid, {}).get(key)
+
         # Pull partner addresses for everyone in the current slice
-        unique_partners = tuple(sorted(set(
-            int(p) for p in df_curr["partner_id"].dropna().tolist()
-        )))
+        unique_partners = tuple(sorted({
+            ipid for p in df_curr["partner_id"].tolist()
+            if (ipid := _safe_pid(p)) is not None
+        }))
         with st.spinner("Resolving customer addresses..."):
             addr_map = fetch_partner_addresses(unique_partners)
 
         # Build per-order frame with city/coords
         geo_df = df_curr.copy()
-        geo_df["city_raw"] = geo_df["partner_id"].map(
-            lambda pid: addr_map.get(int(pid), {}).get("city") if pid else None
-        )
-        geo_df["country"] = geo_df["partner_id"].map(
-            lambda pid: addr_map.get(int(pid), {}).get("country") if pid else None
-        )
-        geo_df["coords"] = geo_df["city_raw"].map(city_to_coords)
+        geo_df["city_raw"] = geo_df["partner_id"].map(lambda p: _lookup(p, "city"))
+        geo_df["country"]  = geo_df["partner_id"].map(lambda p: _lookup(p, "country"))
+        geo_df["coords"]   = geo_df["city_raw"].map(city_to_coords)
         # Prefer real Odoo coords if ever populated
-        geo_df["lat_partner"] = geo_df["partner_id"].map(
-            lambda pid: addr_map.get(int(pid), {}).get("lat") if pid else None
-        )
-        geo_df["lon_partner"] = geo_df["partner_id"].map(
-            lambda pid: addr_map.get(int(pid), {}).get("lon") if pid else None
-        )
+        geo_df["lat_partner"] = geo_df["partner_id"].map(lambda p: _lookup(p, "lat"))
+        geo_df["lon_partner"] = geo_df["partner_id"].map(lambda p: _lookup(p, "lon"))
         # If partner_lat / lon are populated, use them; else fall back to city
         def _resolved_coords(row):
             if row["lat_partner"] and row["lon_partner"]:
