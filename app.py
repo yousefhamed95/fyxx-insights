@@ -1054,15 +1054,26 @@ def year_card_slice(d, year, today, cs, ce):
     return d[(d["day"] >= ws) & (d["day"] <= we)]
 
 
-cards_html = ["<div class='kpi-grid' style='margin-bottom:6px'>"]
+# Build year cards but skip years that have no data in the active window
+# (e.g. years before the business started or future years not yet realised).
 years_for_cards = sorted(selected_years)
+year_card_payload = []
 for y in years_for_cards:
-    is_current = (y == today_local.year)
     d_y = year_card_slice(df, y, today_local, curr_start, curr_end)
+    if d_y.empty:
+        continue
+    is_current = (y == today_local.year)
     d_prev = year_card_slice(df, y - 1, today_local, curr_start, curr_end)
-    cards_html.append(year_card(y, d_y, d_prev, scope_label, is_current))
-cards_html.append("</div>")
-st.markdown("\n".join(cards_html), unsafe_allow_html=True)
+    year_card_payload.append(year_card(y, d_y, d_prev, scope_label, is_current))
+
+if year_card_payload:
+    cards_html = (["<div class='kpi-grid' style='margin-bottom:6px'>"]
+                  + year_card_payload + ["</div>"])
+    st.markdown("\n".join(cards_html), unsafe_allow_html=True)
+# Track which years actually contributed data, so multi-year charts only
+# render lines that exist (no flat zero traces cluttering the legend).
+years_with_data = [y for y in years_for_cards
+                   if not df[df["year"] == y].empty]
 
 
 # =============================================================================
@@ -1427,12 +1438,10 @@ with tab_exec:
         st.markdown("<div class='sec'><h3>Revenue trajectory · YTD by year</h3>"
                     "<div class='sec-sub'>Cumulative net revenue, day-of-year basis</div></div>",
                     unsafe_allow_html=True)
-        if not df.empty:
+        if years_with_data:
             fig = go.Figure()
-            for i, y in enumerate(years_for_cards):
+            for i, y in enumerate(years_with_data):
                 d_y = df[df["year"] == y].copy()
-                if d_y.empty:
-                    continue
                 d_y["doy"] = d_y["dt_local"].dt.dayofyear
                 daily = (d_y.groupby("doy")["amount_total"].sum()
                          .sort_index().cumsum())
@@ -1443,11 +1452,17 @@ with tab_exec:
                 color = YEAR_COLORS[i % len(YEAR_COLORS)]
                 if y == today_local.year:
                     color = PALETTE["neon"]
+                # Label only the final point of each line so we don't crowd
+                end_label = [""] * (len(daily) - 1) + [f"{daily.iloc[-1]:,.0f}"] if len(daily) else []
                 fig.add_trace(go.Scatter(
                     x=daily.index, y=daily.values,
-                    mode="lines",
+                    mode="lines+text",
                     name=str(y),
                     line=dict(width=2.6 if y == today_local.year else 2, color=color),
+                    text=end_label,
+                    textposition="top right",
+                    textfont=dict(color=color, size=11),
+                    cliponaxis=False,
                     hovertemplate=f"<b>{y}</b> · day %{{x}}<br>"
                                   f"%{{y:,.0f}} {CURRENCY}<extra></extra>",
                 ))
@@ -1469,7 +1484,8 @@ with tab_exec:
                      .sort_values(ascending=False).reset_index())
             fig = go.Figure(data=[go.Pie(
                 labels=by_ch["channel"], values=by_ch["amount_total"],
-                hole=0.7, textinfo="percent",
+                hole=0.7,
+                texttemplate="%{value:,.0f}<br>%{percent}",
                 marker=dict(colors=CHART_COLORWAY,
                             line=dict(color=PALETTE["surface"], width=3)),
                 hovertemplate="<b>%{label}</b><br>"
@@ -1493,48 +1509,60 @@ with tab_trends:
     st.markdown("<div class='sec'><h3>Monthly revenue · year-over-year</h3>"
                 "<div class='sec-sub'>Same calendar month, compared across years</div></div>",
                 unsafe_allow_html=True)
-    if not df.empty:
+    if years_with_data:
         fig = go.Figure()
-        for i, y in enumerate(years_for_cards):
+        for i, y in enumerate(years_with_data):
             d_y = df[df["year"] == y]
-            if d_y.empty:
-                continue
             monthly = d_y.groupby("month")["amount_total"].sum().reindex(range(1, 13), fill_value=0)
             color = YEAR_COLORS[i % len(YEAR_COLORS)]
             if y == today_local.year:
                 color = PALETTE["neon"]
+            # Show data labels on non-zero months only
+            label_text = [f"{v:,.0f}" if v else "" for v in monthly.values]
             fig.add_trace(go.Scatter(
                 x=["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-                y=monthly.values, mode="lines+markers",
+                y=monthly.values, mode="lines+markers+text",
                 name=str(y),
                 line=dict(width=2.4, color=color, shape="spline", smoothing=0.6),
                 marker=dict(size=6, color=color),
+                text=label_text,
+                textposition="top center",
+                textfont=dict(color=color, size=10),
+                cliponaxis=False,
                 hovertemplate=f"<b>{y} · %{{x}}</b><br>"
                               f"%{{y:,.0f}} {CURRENCY}<extra></extra>",
             ))
         st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
+    else:
+        st.info("No data in selected window.")
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("<div class='sec'><h3>Daily revenue (last 90 days)</h3>"
+        st.markdown(f"<div class='sec'><h3>Daily revenue · {scope_label}</h3>"
                     "<div class='sec-sub'>Net of VAT</div></div>",
                     unsafe_allow_html=True)
-        cutoff = today_local - timedelta(days=89)
-        d90 = df[df["day"] >= cutoff].copy()
-        if not d90.empty:
-            daily = d90.groupby("day")["amount_total"].sum().reset_index()
+        if not df_curr.empty:
+            daily = (df_curr.groupby("day")["amount_total"].sum()
+                     .sort_index().reset_index())
+            # Only attach text labels when there's room (≤ 45 days)
+            show_labels = len(daily) <= 45
             fig = go.Figure(go.Bar(
                 x=daily["day"], y=daily["amount_total"],
+                text=daily["amount_total"] if show_labels else None,
+                texttemplate="%{text:,.0f}" if show_labels else None,
+                textposition="outside",
+                textfont=dict(color=PALETTE["text_dim"], size=10),
+                cliponaxis=False,
                 marker=dict(color=PALETTE["neon"],
                             line=dict(width=0)),
                 hovertemplate="<b>%{x|%d %b %Y}</b><br>"
                               "%{y:,.0f} " + CURRENCY + "<extra></extra>",
             ))
-            st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+            st.plotly_chart(style_fig(fig, height=320, show_legend=False),
                             use_container_width=True)
         else:
-            st.info("No recent activity.")
+            st.info("No data in selected window.")
 
     with c2:
         st.markdown("<div class='sec'><h3>Day-of-week × hour heatmap</h3>"
@@ -1548,15 +1576,21 @@ with tab_trends:
                    .reset_index())
             order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
             piv = mat.pivot(index="dow", columns="hour", values="amount_total").reindex(order)
+            # Only label cells with non-zero values to keep it readable
+            text_z = [[(f"{v:,.0f}" if v and v > 0 else "")
+                       for v in row] for row in piv.values]
             fig = go.Figure(data=go.Heatmap(
                 z=piv.values, x=piv.columns, y=piv.index,
                 colorscale=[[0, "#0A0A0B"], [0.4, "#0E5A4A"],
                             [1, "#19E3B6"]],
+                text=text_z,
+                texttemplate="%{text}",
+                textfont=dict(size=9, color="#0A0A0B"),
                 hovertemplate="%{y} · %{x}:00<br>"
                               "%{z:,.0f} " + CURRENCY + "<extra></extra>",
                 showscale=False,
             ))
-            st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+            st.plotly_chart(style_fig(fig, height=320, show_legend=False),
                             use_container_width=True)
         else:
             st.info("No data in selected window.")
@@ -1574,43 +1608,61 @@ with tab_channels:
         ch_prev = df_prev.groupby("channel")["amount_total"].sum() if not df_prev.empty else pd.Series(dtype=float)
         all_ch = sorted(set(list(ch_curr.index) + list(ch_prev.index)),
                         key=lambda x: -ch_curr.get(x, 0))
+        prev_vals = [ch_prev.get(c, 0) for c in all_ch]
+        curr_vals = [ch_curr.get(c, 0) for c in all_ch]
         fig = go.Figure()
         fig.add_trace(go.Bar(
-            x=all_ch, y=[ch_prev.get(c, 0) for c in all_ch],
+            x=all_ch, y=prev_vals,
             name="Prior period",
             marker=dict(color=PALETTE["border_lt"], line=dict(width=0)),
+            text=prev_vals, texttemplate="%{text:,.0f}",
+            textposition="outside",
+            textfont=dict(color=PALETTE["text_dim"], size=10),
+            cliponaxis=False,
             hovertemplate="Prior · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         fig.add_trace(go.Bar(
-            x=all_ch, y=[ch_curr.get(c, 0) for c in all_ch],
+            x=all_ch, y=curr_vals,
             name="Current",
             marker=dict(color=PALETTE["neon"], line=dict(width=0)),
+            text=curr_vals, texttemplate="%{text:,.0f}",
+            textposition="outside",
+            textfont=dict(color=PALETTE["neon"], size=10),
+            cliponaxis=False,
             hovertemplate="Current · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08)
-        st.plotly_chart(style_fig(fig, height=360), use_container_width=True)
+        st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("<div class='sec'><h3>Channel × year</h3></div>", unsafe_allow_html=True)
         if not df.empty:
-            cy = (df.groupby(["channel", "year"])["amount_total"].sum()
-                  .reset_index())
-            piv = cy.pivot(index="channel", columns="year", values="amount_total").fillna(0)
-            piv = piv.sort_values(piv.columns[-1], ascending=True)
-            fig = go.Figure()
-            for i, y in enumerate(piv.columns):
-                color = YEAR_COLORS[i % len(YEAR_COLORS)]
-                if y == today_local.year:
-                    color = PALETTE["neon"]
-                fig.add_trace(go.Bar(
-                    y=piv.index, x=piv[y], name=str(y), orientation="h",
-                    marker=dict(color=color, line=dict(width=0)),
-                    hovertemplate=f"<b>%{{y}}</b> · {y}<br>"
-                                  f"%{{x:,.0f}} {CURRENCY}<extra></extra>",
-                ))
-            fig.update_layout(barmode="group")
-            st.plotly_chart(style_fig(fig, height=360), use_container_width=True)
+            # Limit to years that actually have data
+            cy_full = (df.groupby(["channel", "year"])["amount_total"].sum()
+                       .reset_index())
+            cy = cy_full[cy_full["year"].isin(years_with_data)]
+            if not cy.empty:
+                piv = cy.pivot(index="channel", columns="year",
+                               values="amount_total").fillna(0)
+                piv = piv.sort_values(piv.columns[-1], ascending=True)
+                fig = go.Figure()
+                for i, y in enumerate(piv.columns):
+                    color = YEAR_COLORS[i % len(YEAR_COLORS)]
+                    if y == today_local.year:
+                        color = PALETTE["neon"]
+                    fig.add_trace(go.Bar(
+                        y=piv.index, x=piv[y], name=str(y), orientation="h",
+                        marker=dict(color=color, line=dict(width=0)),
+                        text=piv[y], texttemplate="%{text:,.0f}",
+                        textposition="outside",
+                        textfont=dict(color=color, size=10),
+                        cliponaxis=False,
+                        hovertemplate=f"<b>%{{y}}</b> · {y}<br>"
+                                      f"%{{x:,.0f}} {CURRENCY}<extra></extra>",
+                    ))
+                fig.update_layout(barmode="group")
+                st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
 
     with c2:
         st.markdown("<div class='sec'><h3>Channel ranking</h3></div>", unsafe_allow_html=True)
@@ -1683,7 +1735,8 @@ with tab_customers:
                 marker=dict(colors=[PALETTE["neon"], PALETTE["amber"],
                                     PALETTE["border_lt"]],
                             line=dict(color=PALETTE["surface"], width=3)),
-                textinfo="percent",
+                texttemplate="%{value:,.0f}<br>%{percent}",
+                textfont=dict(size=11, color=PALETTE["text"]),
                 hovertemplate="<b>%{label}</b><br>%{value:,.0f} " + CURRENCY +
                               "<br>%{percent}<extra></extra>",
             )])
@@ -1725,16 +1778,23 @@ with tab_team:
     if not df_curr.empty:
         top = (df_curr.groupby("salesperson")["amount_total"].sum()
                .sort_values(ascending=False).head(10))
+        x_vals = top.values[::-1]
+        y_vals = top.index[::-1]
         fig = go.Figure(go.Bar(
-            x=top.values[::-1], y=top.index[::-1], orientation="h",
+            x=x_vals, y=y_vals, orientation="h",
             marker=dict(
-                color=top.values[::-1],
+                color=x_vals,
                 colorscale=[[0, "#0E5A4A"], [1, "#19E3B6"]],
                 line=dict(width=0),
             ),
+            text=x_vals,
+            texttemplate="%{text:,.0f}",
+            textposition="outside",
+            textfont=dict(color=PALETTE["text_dim"], size=10),
+            cliponaxis=False,
             hovertemplate="<b>%{y}</b><br>%{x:,.0f} " + CURRENCY + "<extra></extra>",
         ))
-        st.plotly_chart(style_fig(fig, height=360, show_legend=False),
+        st.plotly_chart(style_fig(fig, height=380, show_legend=False),
                         use_container_width=True)
 
 
