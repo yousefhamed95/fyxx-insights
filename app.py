@@ -944,7 +944,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
     ]
     so_fields = ["name", "partner_id", "user_id", "team_id", "warehouse_id",
                  "amount_untaxed", "amount_tax", "currency_id",
-                 "state", "date_order"]
+                 "state", "date_order", "margin"]
     sos = kw("sale.order", "search_read", [so_domain],
              {"fields": so_fields, "limit": 200000, "order": "date_order asc"})
 
@@ -955,7 +955,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
         ["config_id", "not in", EXCLUDED_POS_CONFIG_IDS],
     ]
     pos_fields = ["name", "partner_id", "user_id", "config_id",
-                  "amount_total", "amount_tax", "state", "date_order"]
+                  "amount_total", "amount_tax", "state", "date_order", "margin"]
     try:
         poss = kw("pos.order", "search_read", [pos_domain],
                   {"fields": pos_fields, "limit": 200000, "order": "date_order asc"})
@@ -976,6 +976,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "partner_id": partner_id,
             "salesperson": salesperson,
             "amount_total": o.get("amount_untaxed", 0.0),
+            "margin": float(o.get("margin") or 0),
             "date_order": o["date_order"],
             "state": o["state"],
             "source": "Sales Order",
@@ -996,6 +997,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "partner_id": partner_id,
             "salesperson": salesperson,
             "amount_total": net,
+            "margin": float(o.get("margin") or 0),
             "date_order": o["date_order"],
             "state": o["state"],
             "source": "POS Ticket",
@@ -1013,7 +1015,7 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     if not rows:
         return pd.DataFrame(columns=[
             "name", "channel", "customer", "partner_id", "salesperson",
-            "amount_total", "date_order", "state", "source",
+            "amount_total", "margin", "date_order", "state", "source",
             "dt_local", "year", "month", "day",
         ])
     df = pd.DataFrame(rows)
@@ -1639,12 +1641,12 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-(tab_brief, tab_exec, tab_pace, tab_alerts, tab_trends, tab_channels,
+(tab_brief, tab_exec, tab_pace, tab_profit, tab_alerts, tab_trends, tab_channels,
  tab_customers, tab_cohorts, tab_team, tab_geo, tab_compare,
  tab_recent) = st.tabs(
-    ["  Brief  ", "  Executive Summary  ", "  Pacing  ", "  Alerts  ",
-     "  Trends  ", "  Channels  ", "  Customers  ", "  Cohorts  ",
-     "  Salespeople  ", "  Geography  ", "  Compare  ", "  Live  "]
+    ["  Brief  ", "  Executive Summary  ", "  Pacing  ", "  Profitability  ",
+     "  Alerts  ", "  Trends  ", "  Channels  ", "  Customers  ",
+     "  Cohorts  ", "  Salespeople  ", "  Geography  ", "  Compare  ", "  Live  "]
 )
 
 
@@ -2271,6 +2273,240 @@ with tab_pace:
             hovertemplate="<b>%{x|%d %b}</b><br>7d avg: %{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
+
+
+# -------- Profitability --------
+with tab_profit:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Profitability</h3>"
+        f"<div class='sec-sub'>{scope_label} · gross profit and margin %, "
+        "from Odoo's per-order margin field (real cost data)</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    if df_curr.empty:
+        st.info("No data in selected window.")
+    else:
+        # ---- KPI strip ----
+        rev_p = float(df_curr["amount_total"].sum())
+        profit_p = float(df_curr["margin"].sum())
+        margin_pct = (profit_p / rev_p * 100) if rev_p else 0
+        cogs_p = rev_p - profit_p
+
+        prev_rev_p = float(df_prev["amount_total"].sum()) if not df_prev.empty else 0
+        prev_profit_p = float(df_prev["margin"].sum()) if not df_prev.empty else 0
+        prev_margin_pct = (prev_profit_p / prev_rev_p * 100) if prev_rev_p else 0
+
+        # Best & worst channel by margin
+        ch_grp = (df_curr.groupby("channel")
+                  .agg(rev=("amount_total", "sum"),
+                       prof=("margin", "sum"),
+                       n=("amount_total", "count"))
+                  .reset_index())
+        ch_grp["gm_pct"] = ch_grp.apply(
+            lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+        )
+        ch_grp = ch_grp.sort_values("prof", ascending=False)
+
+        kpi_html = "<div class='kpi-grid'>"
+        kpi_html += kpi_card(
+            "Gross profit",
+            fmt_money(profit_p, CURRENCY, compact=True),
+            delta_html(profit_p, prev_profit_p, "vs prior period"),
+            f"Prior: {fmt_money(prev_profit_p, CURRENCY, compact=True)}",
+        )
+        kpi_html += kpi_card(
+            "Gross margin",
+            f"{margin_pct:.1f}%",
+            delta_html(margin_pct, prev_margin_pct, "ppts vs prior") if prev_margin_pct else
+            "<span style='color:#71717A'>no prior</span>",
+            f"Prior: {prev_margin_pct:.1f}%" if prev_margin_pct else "",
+        )
+        kpi_html += kpi_card(
+            "COGS",
+            fmt_money(cogs_p, CURRENCY, compact=True),
+            f"<span style='color:#71717A'>{(cogs_p/rev_p*100 if rev_p else 0):.1f}% of revenue</span>",
+            "",
+        )
+        if not ch_grp.empty:
+            best = ch_grp.sort_values("gm_pct", ascending=False).iloc[0]
+            kpi_html += kpi_card(
+                "Highest-margin channel",
+                f"<span style='color:#19E3B6'>{best['channel']}</span>",
+                f"<b>{best['gm_pct']:.1f}%</b> margin · "
+                f"{fmt_money(best['prof'], CURRENCY, compact=True)} profit",
+                "",
+            )
+        kpi_html += "</div>"
+        st.markdown(kpi_html, unsafe_allow_html=True)
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+        # ---- Charts row ----
+        c1, c2 = st.columns([3, 2])
+
+        with c1:
+            st.markdown("<div class='sec'><h3>Profit and margin by channel</h3>"
+                        f"<div class='sec-sub'>{scope_label}</div></div>",
+                        unsafe_allow_html=True)
+            ch_sorted = ch_grp.sort_values("prof", ascending=True)
+            ch_colors = channel_colors_for(ch_sorted["channel"])
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                y=ch_sorted["channel"], x=ch_sorted["prof"],
+                orientation="h",
+                marker=dict(color=ch_colors, line=dict(width=0)),
+                text=[f"{p:,.0f}  ({m:.1f}%)" for p, m
+                      in zip(ch_sorted["prof"], ch_sorted["gm_pct"])],
+                texttemplate="%{text}",
+                textposition="outside",
+                textfont=dict(color=PALETTE["text_dim"], size=11),
+                cliponaxis=False,
+                hovertemplate="<b>%{y}</b><br>"
+                              "Profit: %{x:,.0f} " + CURRENCY + "<br>"
+                              "Margin: %{customdata:.1f}%<extra></extra>",
+                customdata=ch_sorted["gm_pct"],
+            ))
+            st.plotly_chart(style_fig(fig, height=380, show_legend=False),
+                            use_container_width=True)
+
+        with c2:
+            st.markdown("<div class='sec'><h3>Revenue split</h3>"
+                        "<div class='sec-sub'>Gross profit vs cost of goods</div></div>",
+                        unsafe_allow_html=True)
+            fig = go.Figure(data=[go.Pie(
+                labels=["Gross profit", "COGS"],
+                values=[max(profit_p, 0), max(cogs_p, 0)],
+                hole=0.7,
+                marker=dict(colors=["#19E3B6", "#3F3F46"],
+                            line=dict(color=PALETTE["surface"], width=3)),
+                texttemplate="%{value:,.0f}<br>%{percent}",
+                textfont=dict(size=12, color=PALETTE["text"]),
+                hovertemplate="<b>%{label}</b><br>"
+                              "%{value:,.0f} " + CURRENCY +
+                              "<br>%{percent}<extra></extra>",
+            )])
+            fig.update_layout(annotations=[dict(
+                text=f"<b>{margin_pct:.1f}%</b>"
+                     f"<br><span style='font-size:10px;color:#A1A1AA'>Margin</span>",
+                showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
+            st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
+
+        # ---- Profit trend over time ----
+        st.markdown("<div class='sec' style='margin-top:14px'>"
+                    "<h3>Profit and margin trend</h3>"
+                    f"<div class='sec-sub'>{scope_label} · daily gross profit "
+                    "(bars) and rolling 7-day margin % (line)</div></div>",
+                    unsafe_allow_html=True)
+        if len(df_curr) > 0:
+            daily = (df_curr.groupby("day")
+                     .agg(rev=("amount_total", "sum"),
+                          prof=("margin", "sum"),
+                          n=("amount_total", "count"))
+                     .sort_index().reset_index())
+            daily["gm"] = daily.apply(
+                lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+            )
+            daily["gm_roll"] = daily["gm"].rolling(7, min_periods=1).mean()
+
+            from plotly.subplots import make_subplots
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            show_lbl = len(daily) <= 45
+            fig.add_trace(go.Bar(
+                x=daily["day"], y=daily["prof"],
+                name="Daily profit",
+                marker=dict(color="#19E3B6", line=dict(width=0)),
+                text=daily["prof"] if show_lbl else None,
+                texttemplate="%{text:,.0f}" if show_lbl else None,
+                textposition="outside",
+                textfont=dict(color=PALETTE["text_dim"], size=10),
+                cliponaxis=False,
+                hovertemplate="<b>%{x|%d %b}</b><br>Profit: %{y:,.0f} " + CURRENCY +
+                              "<extra></extra>",
+            ), secondary_y=False)
+            fig.add_trace(go.Scatter(
+                x=daily["day"], y=daily["gm_roll"],
+                name="7-day margin %",
+                mode="lines",
+                line=dict(color="#F5B544", width=2.5, shape="spline"),
+                hovertemplate="<b>%{x|%d %b}</b><br>Margin %{y:.1f}%<extra></extra>",
+            ), secondary_y=True)
+            fig.update_yaxes(title=None, secondary_y=False)
+            fig.update_yaxes(title="margin %", secondary_y=True,
+                             range=[0, max(80, daily["gm_roll"].max() * 1.1) if not daily.empty else 100],
+                             gridcolor=PALETTE["border"], showgrid=False,
+                             tickfont=dict(color="#F5B544", size=11))
+            st.plotly_chart(style_fig(fig, height=340), use_container_width=True)
+
+        # ---- Per-channel detail table ----
+        st.markdown("<div class='sec' style='margin-top:14px'>"
+                    "<h3>Channel profitability detail</h3></div>",
+                    unsafe_allow_html=True)
+        tbl = ch_grp.copy()
+        tbl["share_of_rev"] = tbl["rev"] / rev_p * 100 if rev_p else 0
+        tbl["share_of_profit"] = tbl["prof"] / profit_p * 100 if profit_p else 0
+        tbl = tbl[["channel", "n", "rev", "prof", "gm_pct",
+                   "share_of_rev", "share_of_profit"]]
+        tbl.columns = ["Channel", "Orders", f"Revenue ({CURRENCY})",
+                       f"Profit ({CURRENCY})", "Margin %",
+                       "% of revenue", "% of profit"]
+        st.dataframe(
+            tbl, use_container_width=True, hide_index=True,
+            column_config={
+                f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                "% of revenue": st.column_config.NumberColumn(format="%.1f%%"),
+                "% of profit": st.column_config.NumberColumn(format="%.1f%%"),
+                "Orders": st.column_config.NumberColumn(format="%,d"),
+            },
+        )
+
+        # ---- Top profit drivers (customers & salespeople) ----
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("<div class='sec'><h3>Top customers by profit</h3></div>",
+                        unsafe_allow_html=True)
+            top_c = (df_curr.groupby("customer")
+                     .agg(rev=("amount_total", "sum"),
+                          prof=("margin", "sum"))
+                     .reset_index())
+            top_c["gm_pct"] = top_c.apply(
+                lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+            )
+            top_c = top_c.sort_values("prof", ascending=False).head(15)
+            top_c.columns = ["Customer", f"Revenue ({CURRENCY})",
+                             f"Profit ({CURRENCY})", "Margin %"]
+            st.dataframe(
+                top_c, use_container_width=True, hide_index=True, height=460,
+                column_config={
+                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                },
+            )
+        with c2:
+            st.markdown("<div class='sec'><h3>Top salespeople by profit</h3></div>",
+                        unsafe_allow_html=True)
+            top_s = (df_curr.groupby("salesperson")
+                     .agg(rev=("amount_total", "sum"),
+                          prof=("margin", "sum"))
+                     .reset_index())
+            top_s["gm_pct"] = top_s.apply(
+                lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+            )
+            top_s = top_s.sort_values("prof", ascending=False).head(15)
+            top_s.columns = ["Salesperson", f"Revenue ({CURRENCY})",
+                             f"Profit ({CURRENCY})", "Margin %"]
+            st.dataframe(
+                top_s, use_container_width=True, hide_index=True, height=460,
+                column_config={
+                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                },
+            )
 
 
 # -------- Alerts & Anomalies --------
