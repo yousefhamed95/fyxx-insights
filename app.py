@@ -735,15 +735,26 @@ def city_to_coords(city):
     return None
 
 
-# Same NET-of-VAT logic as the operational dashboard
-VIRTUAL_CHANNELS_BY_CUSTOMER = {"Green Room": ["green room"]}
+# Channel mapping based on a deep audit of Fyxx Odoo (last-90-day data):
+#   sale.order  → bucketed by warehouse_id (gives a meaningful split between
+#                 e-commerce, B2B/Bonded, physical shop)
+#   pos.order   → bucketed by config_id (Dine-In = Green Room, etc.)
+#
+# The previous "Sales" team bucket lumped 66% of revenue into one pill.
+# Replacing with warehouse-based buckets exposes 4 distinct sub-channels.
+WAREHOUSE_CHANNEL_MAP = {
+    "Fyxx E-Commerce Warehouse": "Online",
+    "Bonded Warehouse":          "B2B Bonded",
+    "Fyxx Shop Warehouse":       "Fyxx Shop",
+    "Fyxx Warehouse":            "Other Sales",
+}
 POS_CONFIG_CHANNEL_MAP = {
-    3: "Green Room",
+    3: "Green Room",        # Dine-In register
     2: "Retail",
     5: "Jasmine House",
     6: "Events (Mobile)",
 }
-EXCLUDED_POS_CONFIG_IDS = [4]
+EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 
 
 # =============================================================================
@@ -872,12 +883,13 @@ def get_user_info():
     }
 
 
-def resolve_channel_so(team_name, customer_name):
-    cust_lc = (customer_name or "").lower()
-    for label, kws in VIRTUAL_CHANNELS_BY_CUSTOMER.items():
-        if any(k in cust_lc for k in kws):
-            return label
-    return team_name or "No team"
+def resolve_channel_so(warehouse_name, team_name):
+    """Map a sale.order to a friendly channel label.
+    Primary signal is warehouse_id (e.g. 'Fyxx E-Commerce Warehouse' -> 'Online');
+    falls back to team_id if no warehouse mapping is found."""
+    if warehouse_name and warehouse_name in WAREHOUSE_CHANNEL_MAP:
+        return WAREHOUSE_CHANNEL_MAP[warehouse_name]
+    return team_name or "Other Sales"
 
 
 # =============================================================================
@@ -903,7 +915,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
         ["date_order", "<=", end_iso],
         ["state", "in", ["sale", "done"]],
     ]
-    so_fields = ["name", "partner_id", "user_id", "team_id",
+    so_fields = ["name", "partner_id", "user_id", "team_id", "warehouse_id",
                  "amount_untaxed", "amount_tax", "currency_id",
                  "state", "date_order"]
     sos = kw("sale.order", "search_read", [so_domain],
@@ -926,12 +938,13 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
     rows = []
     for o in sos:
         team_name = o["team_id"][1] if o.get("team_id") else None
+        warehouse_name = o["warehouse_id"][1] if o.get("warehouse_id") else None
         partner_id = o["partner_id"][0] if o.get("partner_id") else None
         customer = o["partner_id"][1] if o.get("partner_id") else "—"
         salesperson = o["user_id"][1] if o.get("user_id") else "—"
         rows.append({
             "name": o["name"],
-            "channel": resolve_channel_so(team_name, customer),
+            "channel": resolve_channel_so(warehouse_name, team_name),
             "customer": customer,
             "partner_id": partner_id,
             "salesperson": salesperson,
