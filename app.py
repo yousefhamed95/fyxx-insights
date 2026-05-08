@@ -420,6 +420,98 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     opacity: 0.92;
 }
 .kpi-spark { display: block; width: 100%; }
+
+/* ===== Tier-1 polish: number-entry animation ===== */
+@keyframes value-fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.kpi-value, .year-value {
+    animation: value-fade-up 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    will-change: transform, opacity;
+}
+/* Stagger so the four KPIs ripple in nicely instead of all at once */
+.kpi-grid .kpi:nth-of-type(1) .kpi-value { animation-delay: 0.05s; }
+.kpi-grid .kpi:nth-of-type(2) .kpi-value { animation-delay: 0.15s; }
+.kpi-grid .kpi:nth-of-type(3) .kpi-value { animation-delay: 0.25s; }
+.kpi-grid .kpi:nth-of-type(4) .kpi-value { animation-delay: 0.35s; }
+.kpi-grid .kpi:nth-of-type(5) .kpi-value { animation-delay: 0.45s; }
+.kpi-grid .year-card:nth-of-type(1) .year-value { animation-delay: 0.05s; }
+.kpi-grid .year-card:nth-of-type(2) .year-value { animation-delay: 0.15s; }
+.kpi-grid .year-card:nth-of-type(3) .year-value { animation-delay: 0.25s; }
+
+/* ===== Tier-1 polish: editorial section numbering ===== */
+[data-baseweb="tab-panel"] { counter-reset: section; }
+[data-baseweb="tab-panel"] .sec h3 {
+    counter-increment: section;
+}
+[data-baseweb="tab-panel"] .sec h3::before {
+    content: counter(section, decimal-leading-zero) "  /  ";
+    color: rgba(56, 189, 248, 0.55);
+    font-weight: 500;
+    font-style: normal;
+    margin-right: 2px;
+    letter-spacing: 0.10em;
+    font-feature-settings: "tnum" 1;
+}
+
+/* ===== Tier-1 polish: hover micro-interactions ===== */
+.kpi, .year-card, .alert-card, .insight {
+    transition:
+        transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1),
+        box-shadow 0.22s ease,
+        border-color 0.22s ease;
+}
+.kpi:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px -12px rgba(25, 227, 182, 0.28),
+                0 1px 0 0 rgba(25, 227, 182, 0.10) inset;
+    border-color: rgba(25, 227, 182, 0.30);
+}
+.year-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px -12px rgba(25, 227, 182, 0.30);
+}
+.alert-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(244, 244, 245, 0.18);
+}
+.insight:hover {
+    border-color: rgba(25, 227, 182, 0.25);
+}
+
+/* ===== Tier-1 polish: sticky scope strip ===== */
+.scope-strip {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    margin: -8px 0 14px 0;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: rgba(14, 14, 18, 0.78);
+    -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+    border: 1px solid #23232B;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 11.5px;
+    color: #A1A1AA;
+    letter-spacing: 0.04em;
+}
+.scope-strip .pill {
+    color: #19E3B6;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 10.5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(25, 227, 182, 0.10);
+    border: 1px solid rgba(25, 227, 182, 0.25);
+}
+.scope-strip .dim { color: #71717A; }
+.scope-strip b { color: #F4F4F5; font-weight: 600; }
 .kpi {
     background: linear-gradient(160deg, #131318 0%, #0E0E12 100%);
     border: 1px solid #23232B;
@@ -1130,9 +1222,9 @@ def style_fig(fig, height=320, show_legend=True):
         plot_bgcolor=PALETTE["surface"],
         paper_bgcolor=PALETTE["surface"],
         font=dict(family="Inter, -apple-system, sans-serif",
-                  color=PALETTE["text_dim"], size=12),
+                  color=PALETTE["text_dim"], size=11.5),
         colorway=CHART_COLORWAY,
-        margin=dict(l=8, r=8, t=10, b=8),
+        margin=dict(l=8, r=12, t=10, b=8),
         height=height,
         showlegend=show_legend,
         legend=dict(
@@ -1143,14 +1235,23 @@ def style_fig(fig, height=320, show_legend=True):
         hoverlabel=dict(bgcolor=PALETTE["surface2"],
                         bordercolor=PALETTE["border_lt"],
                         font_color=PALETTE["text"],
-                        font_family="Inter"),
+                        font_family="Inter",
+                        font_size=12),
     )
-    fig.update_xaxes(showgrid=False, showline=False, ticks="",
-                     tickfont=dict(size=11, color=PALETTE["muted"]),
-                     zerolinecolor=PALETTE["border"])
-    fig.update_yaxes(gridcolor=PALETTE["border"], showline=False, ticks="",
-                     tickfont=dict(size=11, color=PALETTE["muted"]),
-                     zeroline=False)
+    fig.update_xaxes(
+        showgrid=False, showline=False, ticks="",
+        tickfont=dict(size=10.5, color=PALETTE["muted"]),
+        zerolinecolor=PALETTE["border"],
+    )
+    fig.update_yaxes(
+        gridcolor="rgba(255,255,255,0.045)",
+        griddash="dot",
+        gridwidth=1,
+        showline=False,
+        ticks="",
+        tickfont=dict(size=10.5, color=PALETTE["muted"]),
+        zeroline=False,
+    )
     return fig
 
 
@@ -1513,6 +1614,28 @@ ticker_slot.markdown(
     build_ticker(df_curr, df_prev, scope_label, CURRENCY),
     unsafe_allow_html=True,
 )
+
+
+# =============================================================================
+# STICKY SCOPE STRIP — stays visible while you scroll
+# =============================================================================
+_now_for_strip = datetime.now(ZoneInfo(TZ))
+if all_channels and len(selected_channels) < len(all_channels):
+    _strip_chans = f"{len(selected_channels)} of {len(all_channels)} channels"
+elif all_channels:
+    _strip_chans = f"all {len(all_channels)} channels"
+else:
+    _strip_chans = "no channels"
+_scope_strip_html = (
+    "<div class='scope-strip'>"
+    f"<span class='pill'>{scope_label}</span>"
+    f"<span class='dim'>·</span>"
+    f"<span><b>{_strip_chans}</b></span>"
+    f"<span class='dim'>·</span>"
+    f"<span class='dim'>Updated {_now_for_strip.strftime('%H:%M:%S')} · {TZ}</span>"
+    "</div>"
+)
+st.markdown(_scope_strip_html, unsafe_allow_html=True)
 
 
 # =============================================================================
