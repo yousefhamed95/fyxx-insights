@@ -11,9 +11,11 @@ Data source: Odoo XMLRPC. 100% READ-ONLY (search_read only).
 import os
 import base64
 import textwrap
+import uuid
 import xmlrpc.client
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 from zoneinfo import ZoneInfo
 
 import hmac
@@ -526,6 +528,54 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 }
 .scope-strip .dim { color: #71717A; }
 .scope-strip b { color: #F4F4F5; font-weight: 600; }
+
+/* ===== Live-viewer badge (top-left, fixed, glassmorphic) ===== */
+.viewers-badge {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 9999;
+    background: rgba(14, 14, 18, 0.78);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+            backdrop-filter: blur(12px) saturate(1.2);
+    border: 1px solid rgba(25, 227, 182, 0.28);
+    border-radius: 999px;
+    padding: 6px 14px 6px 10px;
+    color: #A1A1AA;
+    font-size: 11.5px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: 0.04em;
+    box-shadow: 0 6px 22px -10px rgba(25, 227, 182, 0.30);
+    pointer-events: none;
+    user-select: none;
+}
+.viewers-badge .v-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #19E3B6;
+    box-shadow: 0 0 8px #19E3B6;
+    animation: pulse 1.8s infinite;
+    flex-shrink: 0;
+}
+.viewers-badge b {
+    color: #F4F4F5;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.viewers-badge .v-label {
+    color: #71717A;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 10px;
+    font-weight: 600;
+}
+/* Hide on print */
+@media print {
+    .viewers-badge { display: none !important; }
+}
 
 /* ===== Print / PDF stylesheet ===== */
 @media print {
@@ -1060,6 +1110,36 @@ def check_password():
 
 check_password()
 st_autorefresh(interval=REFRESH_SECONDS * 1000, key="data-refresh")
+
+
+# =============================================================================
+# LIVE VIEWER PRESENCE — counts active sessions on this worker
+# =============================================================================
+PRESENCE_TTL_SECONDS = 90  # a session that hasn't pinged in 90s is "gone"
+
+
+@st.cache_resource(show_spinner=False)
+def _presence_store():
+    """Single dict shared across all Streamlit sessions running on this worker."""
+    return {"sessions": {}, "lock": Lock()}
+
+
+def update_presence():
+    """Heartbeat the current session and return the live viewer count."""
+    if "presence_id" not in st.session_state:
+        st.session_state.presence_id = uuid.uuid4().hex[:12]
+    store = _presence_store()
+    now_ts = datetime.now(timezone.utc).timestamp()
+    with store["lock"]:
+        store["sessions"][st.session_state.presence_id] = now_ts
+        cutoff = now_ts - PRESENCE_TTL_SECONDS
+        store["sessions"] = {
+            sid: ts for sid, ts in store["sessions"].items() if ts > cutoff
+        }
+        return len(store["sessions"])
+
+
+_LIVE_VIEWERS = update_presence()
 
 
 # =============================================================================
@@ -1738,6 +1818,20 @@ def build_ticker(df_curr, df_prev, scope_label, currency):
 
 ticker_slot.markdown(
     build_ticker(df_curr, df_prev, scope_label, CURRENCY),
+    unsafe_allow_html=True,
+)
+
+
+# =============================================================================
+# LIVE-VIEWER BADGE (fixed, top-left)
+# =============================================================================
+_viewer_word = "viewer" if _LIVE_VIEWERS == 1 else "viewers"
+st.markdown(
+    f"<div class='viewers-badge'>"
+    f"<span class='v-dot'></span>"
+    f"<b>{_LIVE_VIEWERS}</b>"
+    f"<span class='v-label'>live {_viewer_word}</span>"
+    f"</div>",
     unsafe_allow_html=True,
 )
 
