@@ -243,6 +243,110 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     100% { box-shadow: 0 0 0 0 rgba(25,227,182, 0); }
 }
 
+/* ===== Stock-news ticker bar ===== */
+.ticker-bar {
+    display: flex;
+    align-items: stretch;
+    background: linear-gradient(90deg,
+        #08080A 0%,
+        #101015 50%,
+        #08080A 100%);
+    border: 1px solid #1F1F26;
+    border-radius: 14px;
+    overflow: hidden;
+    height: 46px;
+    margin: 4px 0 14px 0;
+    position: relative;
+    box-shadow: 0 0 26px -10px rgba(25,227,182, 0.22),
+                inset 0 0 0 1px rgba(25,227,182, 0.04);
+}
+.ticker-live {
+    flex-shrink: 0;
+    background: linear-gradient(90deg,
+        rgba(25,227,182,0.16) 0%,
+        rgba(25,227,182,0.04) 100%);
+    border-right: 1px solid rgba(25,227,182, 0.30);
+    display: flex; align-items: center; gap: 9px;
+    padding: 0 18px;
+    color: #19E3B6;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.20em;
+    text-transform: uppercase;
+    z-index: 2;
+}
+.ticker-live .dot {
+    width: 7px; height: 7px;
+    background: #19E3B6;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #19E3B6;
+    animation: pulse 1.8s infinite;
+}
+.ticker-mask {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
+}
+.ticker-track {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    width: max-content;
+    animation: ticker-scroll 80s linear infinite;
+}
+.ticker-track:hover { animation-play-state: paused; }
+@keyframes ticker-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+.ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 28px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    border-right: 1px solid #1F1F26;
+    height: 100%;
+}
+.ticker-item .label {
+    color: #19E3B6;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    font-size: 10.8px;
+    opacity: 0.92;
+}
+.ticker-item .value {
+    color: #F4F4F5;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+}
+.ticker-item .delta {
+    font-weight: 700;
+    font-size: 11.5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-left: 2px;
+}
+.ticker-item .delta.up {
+    color: #BBF7D0;
+    background: rgba(34,197,94, 0.12);
+    border: 1px solid rgba(34,197,94, 0.30);
+}
+.ticker-item .delta.dn {
+    color: #FECACA;
+    background: rgba(248,113,113, 0.12);
+    border: 1px solid rgba(248,113,113, 0.30);
+}
+.ticker-item .delta.flat {
+    color: #A1A1AA;
+    background: rgba(161,161,170, 0.10);
+    border: 1px solid rgba(161,161,170, 0.25);
+}
+
 /* Hero */
 .hero {
     display: flex; align-items: center; justify-content: space-between;
@@ -882,6 +986,12 @@ all_channels = sorted(df_hist["channel"].dropna().unique().tolist()) if not df_h
 
 
 # =============================================================================
+# TICKER PLACEHOLDER — reserved at the very top, filled after data is computed
+# =============================================================================
+ticker_slot = st.empty()
+
+
+# =============================================================================
 # TOP SLICER BAR — period + channels live at the top of the report
 # =============================================================================
 st.markdown(
@@ -1033,6 +1143,137 @@ def slice_df(d, start, end):
 
 df_curr = slice_df(df, curr_start, curr_end)
 df_prev = slice_df(df, prev_start, prev_end)
+
+
+# =============================================================================
+# TICKER — fill the top placeholder with channel KPIs in scrolling marquee
+# =============================================================================
+def _delta_chip(curr_val, prev_val):
+    if not prev_val:
+        return "<span class='delta flat'>· NEW</span>"
+    pct = (curr_val - prev_val) / prev_val * 100
+    cls = "up" if pct >= 0 else "dn"
+    arrow = "▲" if pct >= 0 else "▼"
+    return f"<span class='delta {cls}'>{arrow} {abs(pct):.1f}%</span>"
+
+
+def build_ticker(df_curr, df_prev, scope_label, currency):
+    items = []
+
+    # ---- Total revenue tile ----
+    rev = float(df_curr["amount_total"].sum()) if not df_curr.empty else 0.0
+    prev_rev_t = float(df_prev["amount_total"].sum()) if not df_prev.empty else 0.0
+    items.append(
+        f"<div class='ticker-item'>"
+        f"<span class='label'>{scope_label} · Total</span>"
+        f"<span class='value'>{fmt_money(rev, currency, compact=True)}</span>"
+        f"{_delta_chip(rev, prev_rev_t)}"
+        f"</div>"
+    )
+
+    # ---- Orders tile ----
+    orders_n = len(df_curr)
+    prev_orders_n = len(df_prev) if not df_prev.empty else 0
+    items.append(
+        f"<div class='ticker-item'>"
+        f"<span class='label'>Orders</span>"
+        f"<span class='value'>{orders_n:,}</span>"
+        f"{_delta_chip(orders_n, prev_orders_n)}"
+        f"</div>"
+    )
+
+    # ---- AOV tile ----
+    aov = (rev / orders_n) if orders_n else 0
+    prev_aov_v = (prev_rev_t / prev_orders_n) if prev_orders_n else 0
+    items.append(
+        f"<div class='ticker-item'>"
+        f"<span class='label'>AOV</span>"
+        f"<span class='value'>{fmt_money(aov, currency)}</span>"
+        f"{_delta_chip(aov, prev_aov_v)}"
+        f"</div>"
+    )
+
+    # ---- Customers tile ----
+    cust_n = df_curr["customer"].nunique() if not df_curr.empty else 0
+    prev_cust_n = df_prev["customer"].nunique() if not df_prev.empty else 0
+    items.append(
+        f"<div class='ticker-item'>"
+        f"<span class='label'>Customers</span>"
+        f"<span class='value'>{cust_n:,}</span>"
+        f"{_delta_chip(cust_n, prev_cust_n)}"
+        f"</div>"
+    )
+
+    # ---- One tile per channel, sorted by current revenue ----
+    if not df_curr.empty:
+        ch_curr_s = df_curr.groupby("channel")["amount_total"].sum().sort_values(ascending=False)
+        ch_prev_s = (df_prev.groupby("channel")["amount_total"].sum()
+                     if not df_prev.empty else pd.Series(dtype=float))
+        for ch_name, ch_val in ch_curr_s.items():
+            items.append(
+                f"<div class='ticker-item'>"
+                f"<span class='label'>{ch_name}</span>"
+                f"<span class='value'>{fmt_money(ch_val, currency, compact=True)}</span>"
+                f"{_delta_chip(ch_val, ch_prev_s.get(ch_name, 0))}"
+                f"</div>"
+            )
+
+    # ---- Top customer tile ----
+    if not df_curr.empty:
+        cust_rev_s = df_curr.groupby("customer")["amount_total"].sum().sort_values(ascending=False)
+        if len(cust_rev_s) > 0:
+            items.append(
+                f"<div class='ticker-item'>"
+                f"<span class='label'>Top Customer</span>"
+                f"<span class='value'>{cust_rev_s.index[0]} · "
+                f"{fmt_money(cust_rev_s.iloc[0], currency, compact=True)}</span>"
+                f"</div>"
+            )
+
+    # ---- Top salesperson tile ----
+    if not df_curr.empty:
+        sp_rev_s = df_curr.groupby("salesperson")["amount_total"].sum().sort_values(ascending=False)
+        if len(sp_rev_s) > 0:
+            items.append(
+                f"<div class='ticker-item'>"
+                f"<span class='label'>Top Sales</span>"
+                f"<span class='value'>{sp_rev_s.index[0]} · "
+                f"{fmt_money(sp_rev_s.iloc[0], currency, compact=True)}</span>"
+                f"</div>"
+            )
+
+    # ---- Best day tile ----
+    if not df_curr.empty:
+        by_day_s = df_curr.groupby("day")["amount_total"].sum()
+        if not by_day_s.empty and len(by_day_s) > 1:
+            best_day_s = by_day_s.idxmax()
+            items.append(
+                f"<div class='ticker-item'>"
+                f"<span class='label'>Best Day</span>"
+                f"<span class='value'>{best_day_s.strftime('%d %b')} · "
+                f"{fmt_money(by_day_s.max(), currency, compact=True)}</span>"
+                f"</div>"
+            )
+
+    if not items:
+        return ""
+
+    track = "".join(items)
+    return (
+        "<div class='ticker-bar'>"
+        "<div class='ticker-live'><span class='dot'></span>Live</div>"
+        "<div class='ticker-mask'>"
+        # Track is duplicated so the translateX -50% loop is seamless
+        f"<div class='ticker-track'>{track}{track}</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+ticker_slot.markdown(
+    build_ticker(df_curr, df_prev, scope_label, CURRENCY),
+    unsafe_allow_html=True,
+)
 
 
 # =============================================================================
