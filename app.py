@@ -756,6 +756,33 @@ POS_CONFIG_CHANNEL_MAP = {
 }
 EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 
+# Stable colour per channel — keeps any chart visually consistent.
+# Falls back to CHART_COLORWAY for channels not listed here.
+CHANNEL_COLORS = {
+    "Online":           "#19E3B6",  # primary neon (largest channel)
+    "Green Room":       "#A78BFA",  # violet (hospitality)
+    "B2B Bonded":       "#F5B544",  # amber/gold (premium / high-AOV)
+    "Retail":           "#38BDF8",  # sky blue
+    "Fyxx Shop":        "#EC4899",  # rose
+    "Events (Mobile)":  "#22C55E",  # green
+    "Jasmine House":    "#FBBF24",  # warm yellow
+    "Other Sales":      "#71717A",  # muted grey
+}
+
+
+def channel_colors_for(channels):
+    """Return a list of hex colours aligned to a list of channel names."""
+    out = []
+    fallback = list(CHART_COLORWAY)
+    fb_i = 0
+    for c in channels:
+        if c in CHANNEL_COLORS:
+            out.append(CHANNEL_COLORS[c])
+        else:
+            out.append(fallback[fb_i % len(fallback)])
+            fb_i += 1
+    return out
+
 
 # =============================================================================
 # CREDENTIALS
@@ -1967,7 +1994,7 @@ with tab_exec:
                 labels=by_ch["channel"], values=by_ch["amount_total"],
                 hole=0.7,
                 texttemplate="%{value:,.0f}<br>%{percent}",
-                marker=dict(colors=CHART_COLORWAY,
+                marker=dict(colors=channel_colors_for(by_ch["channel"]),
                             line=dict(color=PALETTE["surface"], width=3)),
                 hovertemplate="<b>%{label}</b><br>"
                               "%{value:,.0f} " + CURRENCY +
