@@ -1486,6 +1486,43 @@ def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
     return rows
 
 
+# Product-category lookup — read-only, cached. Returns dict id -> info.
+@st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
+def fetch_product_categories(product_ids_tuple, _ttl_bucket):
+    """Read product.product.categ_id for each id; return id -> dict with
+       'subcategory' (leaf), 'group' (top-level), 'category_path' (full)."""
+    if not product_ids_tuple:
+        return {}
+    ids = [int(i) for i in product_ids_tuple if i]
+    if not ids:
+        return {}
+    try:
+        rows = kw("product.product", "read", [ids],
+                  {"fields": ["id", "categ_id"]})
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        path = (r["categ_id"][1] if r.get("categ_id") else "") or ""
+        if not path:
+            out[r["id"]] = {"subcategory": "—", "group": "—",
+                            "category_path": "—"}
+            continue
+        parts = [p.strip() for p in path.split("/") if p.strip()]
+        if parts and parts[0].lower() == "all":
+            parts = parts[1:]
+        if not parts:
+            out[r["id"]] = {"subcategory": "—", "group": "—",
+                            "category_path": path}
+            continue
+        out[r["id"]] = {
+            "subcategory": parts[-1],
+            "group": parts[0],
+            "category_path": path,
+        }
+    return out
+
+
 # Partner address lookup — read-only, cached 1 hour. Returns dict id -> info.
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_partner_addresses(partner_ids_tuple):
@@ -3254,6 +3291,26 @@ with tab_sku:
         else:
             sku_df = pd.DataFrame(sku_rows)
 
+            # ---- Attach category / sub-category to each line ----
+            _unique_pids = tuple(sorted({
+                int(p) for p in sku_df["product_id"].dropna().tolist()
+            }))
+            with st.spinner("Resolving product categories..."):
+                _cat_map = fetch_product_categories(_unique_pids, hist_bucket)
+
+            def _cat_lookup(pid, key):
+                if pid is None or pd.isna(pid):
+                    return "—"
+                try:
+                    return _cat_map.get(int(pid), {}).get(key, "—") or "—"
+                except (TypeError, ValueError):
+                    return "—"
+
+            sku_df["subcategory"] = sku_df["product_id"].map(
+                lambda p: _cat_lookup(p, "subcategory"))
+            sku_df["group"] = sku_df["product_id"].map(
+                lambda p: _cat_lookup(p, "group"))
+
             # ---- KPI strip ----
             unique_skus = sku_df["product_id"].nunique()
             total_units = float(sku_df["qty"].sum())
@@ -3304,7 +3361,9 @@ with tab_sku:
                    .agg(units=("qty", "sum"),
                         revenue=("revenue", "sum"),
                         margin=("margin", "sum"),
-                        lines=("revenue", "count"))
+                        lines=("revenue", "count"),
+                        subcategory=("subcategory", "first"),
+                        group=("group", "first"))
                    .reset_index())
             agg["margin_pct"] = agg.apply(
                 lambda r: r["margin"] / r["revenue"] * 100 if r["revenue"] else 0,
@@ -3423,9 +3482,11 @@ with tab_sku:
                         "</div>",
                         unsafe_allow_html=True)
             tbl = agg.sort_values("revenue", ascending=False).copy()
-            tbl = tbl[["product_name", "units", "lines", "revenue",
+            tbl = tbl[["product_name", "subcategory", "group",
+                       "units", "lines", "revenue",
                        "margin", "margin_pct", "share_rev"]]
-            tbl.columns = ["Product", "Units", "Order lines",
+            tbl.columns = ["Product", "Sub-category", "Group",
+                           "Units", "Order lines",
                            f"Revenue ({CURRENCY})", f"Profit ({CURRENCY})",
                            "Margin %", "% of revenue"]
             _max_sku_rev = tbl[f"Revenue ({CURRENCY})"].max() or 1
@@ -3435,6 +3496,8 @@ with tab_sku:
                 tbl, use_container_width=True, hide_index=True, height=520,
                 column_config={
                     "Product": st.column_config.TextColumn(width="large"),
+                    "Sub-category": st.column_config.TextColumn(width="medium"),
+                    "Group": st.column_config.TextColumn(width="small"),
                     "Units": st.column_config.ProgressColumn(
                         "Units", format="%,.0f",
                         min_value=0, max_value=float(_max_sku_units)),
