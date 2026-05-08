@@ -1754,6 +1754,55 @@ def _build_brief(df_curr, df_prev, scope_label, currency,
                          f"at {signed_pct(worst_ch[1])}. ")
         p_ch += "</p>"
 
+    # ----- Profitability paragraph -----
+    p_profit = ""
+    if "margin" in df_curr.columns:
+        profit_n = float(df_curr["margin"].sum())
+        prev_profit_n = (float(df_prev["margin"].sum())
+                         if not df_prev.empty and "margin" in df_prev.columns else 0)
+        gm_pct = (profit_n / rev * 100) if rev else 0
+        prev_gm_pct = (prev_profit_n / prev * 100) if prev else 0
+        ch_prof = (df_curr.groupby("channel")
+                   .agg(rev=("amount_total", "sum"),
+                        prof=("margin", "sum"))
+                   .reset_index())
+        ch_prof["gm"] = ch_prof.apply(
+            lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+        )
+        best_m = ch_prof.sort_values("gm", ascending=False).iloc[0] if not ch_prof.empty else None
+        worst_m = ch_prof.sort_values("gm", ascending=True).iloc[0] if len(ch_prof) > 1 else None
+
+        p_profit = (
+            f"<p><b>Profitability.</b> "
+            f"Gross profit was {acc(fmt_money(profit_n, currency, compact=True))} "
+            f"on a margin of {acc(f'{gm_pct:.1f}%')}. "
+        )
+        if prev and prev_profit_n:
+            ppt = gm_pct - prev_gm_pct
+            color = "#22C55E" if ppt >= 0 else "#F87171"
+            profit_pct_change = ((profit_n - prev_profit_n) / prev_profit_n * 100) if prev_profit_n else 0
+            p_profit += (
+                f"That's <span style='color:{color};font-weight:600'>"
+                f"{ppt:+.1f}ppt</span> versus the prior period "
+                f"(profit {signed_pct(profit_pct_change)}). "
+            )
+        if best_m is not None:
+            best_gm = float(best_m["gm"])
+            best_prof = float(best_m["prof"])
+            p_profit += (
+                f"Strongest margin: {acc(best_m['channel'])} at "
+                f"{acc(f'{best_gm:.1f}%')} "
+                f"delivering {acc(fmt_money(best_prof, currency, compact=True))} of profit. "
+            )
+        if (worst_m is not None and best_m is not None
+                and worst_m["channel"] != best_m["channel"]):
+            worst_gm = float(worst_m["gm"])
+            p_profit += (
+                f"Weakest: {acc(worst_m['channel'], '#F87171')} at "
+                f"{acc(f'{worst_gm:.1f}%')}."
+            )
+        p_profit += "</p>"
+
     # ----- Customer + sales paragraph -----
     p_cust = "<p>"
     if len(cust_rev) > 0:
@@ -1842,7 +1891,7 @@ def _build_brief(df_curr, df_prev, scope_label, currency,
                 "</p>"
             )
 
-    return p_lead + p_ch + p_cust + p_team + p_day + closing
+    return p_lead + p_ch + p_profit + p_cust + p_team + p_day + closing
 
 
 with tab_brief:
@@ -2618,7 +2667,120 @@ with tab_alerts:
                     f"Customers with 3+ orders in the prior 60 days "
                     f"who haven't ordered in the last 30:<br>{names_html}"))
 
-        # 5) Best day callout
+        # 5) Profitability — overall margin compression vs baseline
+        if "margin" in df_curr.columns:
+            curr_rev_a = float(df_curr["amount_total"].sum())
+            curr_prof_a = float(df_curr["margin"].sum())
+            curr_gm_a = (curr_prof_a / curr_rev_a * 100) if curr_rev_a else 0
+            # Baseline margin: same period spans, prior 4 cycles
+            span_a = (curr_end - curr_start).days + 1
+            prior_revs_a, prior_profs_a = [], []
+            for i in range(1, 5):
+                ps = curr_start - timedelta(days=span_a * i)
+                pe = ps + timedelta(days=span_a - 1)
+                d_pri = df[(df["day"] >= ps) & (df["day"] <= pe)]
+                if not d_pri.empty:
+                    prior_revs_a.append(float(d_pri["amount_total"].sum()))
+                    prior_profs_a.append(float(d_pri["margin"].sum()))
+            base_rev = sum(prior_revs_a)
+            base_prof = sum(prior_profs_a)
+            base_gm = (base_prof / base_rev * 100) if base_rev else 0
+            if base_gm > 0:
+                ppt_diff = curr_gm_a - base_gm
+                if ppt_diff <= -3:
+                    alerts.append(("bad", "▼",
+                        "Margin compression",
+                        f"Gross margin of <b>{curr_gm_a:.1f}%</b> is "
+                        f"<b>{abs(ppt_diff):.1f}ppt below</b> the 4-period baseline "
+                        f"of {base_gm:.1f}%. "
+                        f"Profit dollars: {fmt_money(curr_prof_a, CURRENCY, compact=True)} "
+                        f"on revenue of {fmt_money(curr_rev_a, CURRENCY, compact=True)}."))
+                elif ppt_diff >= 3:
+                    alerts.append(("good", "▲",
+                        "Margin expansion",
+                        f"Gross margin of <b>{curr_gm_a:.1f}%</b> is "
+                        f"<b>{ppt_diff:.1f}ppt above</b> the 4-period baseline "
+                        f"of {base_gm:.1f}%. "
+                        f"Period profit: {fmt_money(curr_prof_a, CURRENCY, compact=True)}."))
+
+        # 6) Loss-making orders (negative margin)
+        if "margin" in df_curr.columns:
+            losses = df_curr[df_curr["margin"] < 0]
+            if not losses.empty:
+                total_loss = float(losses["margin"].sum())
+                top_losers = (losses.groupby("customer")["margin"].sum()
+                              .sort_values().head(5))
+                names_html_l = "<br>".join(
+                    f"&nbsp;&nbsp;• {c} — loss of {fmt_money(abs(v), CURRENCY, compact=True)}"
+                    for c, v in top_losers.items()
+                )
+                alerts.append(("bad", "✖",
+                    f"{len(losses)} loss-making orders",
+                    f"Combined negative margin of "
+                    f"<b>{fmt_money(abs(total_loss), CURRENCY, compact=True)}</b> "
+                    f"this period. Worst customers:<br>{names_html_l}"))
+
+        # 7) Channel margin anomalies — channels whose margin diverges sharply
+        if "margin" in df_curr.columns:
+            ch_curr_p = (df_curr.groupby("channel")
+                         .agg(rev=("amount_total", "sum"),
+                              prof=("margin", "sum")))
+            ch_curr_p["gm"] = ch_curr_p.apply(
+                lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+            )
+            for ch_ in ch_curr_p.index:
+                # Baseline GM for this channel from prior 4 cycles
+                base_revs, base_profs = [], []
+                for i in range(1, 5):
+                    ps = curr_start - timedelta(days=span_a * i)
+                    pe = ps + timedelta(days=span_a - 1)
+                    d_p = df[(df["day"] >= ps) & (df["day"] <= pe) & (df["channel"] == ch_)]
+                    if not d_p.empty:
+                        base_revs.append(float(d_p["amount_total"].sum()))
+                        base_profs.append(float(d_p["margin"].sum()))
+                if base_revs and sum(base_revs) > 0:
+                    bgm = sum(base_profs) / sum(base_revs) * 100
+                    cgm = float(ch_curr_p.loc[ch_, "gm"])
+                    diff = cgm - bgm
+                    if diff <= -5:
+                        alerts.append(("bad", "▼",
+                            f"{ch_} margin slipping",
+                            f"Gross margin of <b>{cgm:.1f}%</b> is "
+                            f"<b>{abs(diff):.1f}ppt below</b> "
+                            f"its 4-period baseline of {bgm:.1f}%."))
+                    elif diff >= 5:
+                        alerts.append(("good", "▲",
+                            f"{ch_} margin improving",
+                            f"Gross margin of <b>{cgm:.1f}%</b> is "
+                            f"<b>{diff:.1f}ppt above</b> "
+                            f"its 4-period baseline of {bgm:.1f}%."))
+
+        # 8) High-revenue / low-margin customers (worth re-pricing)
+        if "margin" in df_curr.columns and curr_rev > 0:
+            cust_p = (df_curr.groupby("customer")
+                      .agg(rev=("amount_total", "sum"),
+                           prof=("margin", "sum")))
+            cust_p["gm"] = cust_p.apply(
+                lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
+            )
+            # Top 10% of customers by revenue (only if there's a meaningful base)
+            if len(cust_p) >= 10:
+                rev_p90 = cust_p["rev"].quantile(0.9)
+                bigs = cust_p[cust_p["rev"] >= rev_p90]
+                # Among those, anyone with sub-15% gross margin
+                low_gm = bigs[bigs["gm"] < 15].sort_values("rev", ascending=False).head(5)
+                if not low_gm.empty:
+                    rows_html = "<br>".join(
+                        f"&nbsp;&nbsp;• {c} — {fmt_money(r['rev'], CURRENCY, compact=True)} rev "
+                        f"at {r['gm']:.1f}% margin"
+                        for c, r in low_gm.iterrows()
+                    )
+                    alerts.append(("warn", "◆",
+                        "High revenue, thin margin",
+                        f"Top-decile customers whose gross margin is below 15% — "
+                        f"candidates for re-pricing or cost review:<br>{rows_html}"))
+
+        # 9) Best day callout
         by_day = df_curr.groupby("day")["amount_total"].sum()
         if len(by_day) > 1:
             best_day = by_day.idxmax()
