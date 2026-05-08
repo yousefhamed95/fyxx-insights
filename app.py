@@ -341,6 +341,64 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 .sec h3 { margin: 0; }
 .sec .sec-sub { color: #71717A; font-size: 12px; }
 
+/* Executive Brief card */
+.brief-card {
+    background: linear-gradient(160deg, #131318 0%, #0E0E13 100%);
+    border: 1px solid #23232B;
+    border-radius: 18px;
+    padding: 28px 36px;
+    margin-bottom: 18px;
+    position: relative;
+    overflow: hidden;
+}
+.brief-card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: linear-gradient(180deg, #19E3B6, transparent 70%);
+}
+.brief-card p {
+    color: #D4D4D8;
+    font-size: 14.5px;
+    line-height: 1.85;
+    margin: 0 0 14px 0;
+    font-weight: 400;
+    letter-spacing: 0.005em;
+}
+.brief-card p:last-child { margin-bottom: 0; }
+.brief-card p b {
+    color: #F4F4F5;
+    font-weight: 600;
+}
+.brief-card .brief-lead {
+    font-size: 16.5px;
+    line-height: 1.75;
+    color: #E4E4E7;
+    border-bottom: 1px solid #1F1F26;
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+}
+.brief-card .brief-callout {
+    margin-top: 18px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    font-size: 13.5px !important;
+    line-height: 1.7 !important;
+}
+.brief-card .brief-good {
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    color: #BBF7D0 !important;
+}
+.brief-card .brief-neutral {
+    background: rgba(245, 181, 68, 0.06);
+    border: 1px solid rgba(245, 181, 68, 0.20);
+    color: #FDE68A !important;
+}
+.brief-card .brief-bad {
+    background: rgba(248, 113, 113, 0.06);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    color: #FECACA !important;
+}
+
 /* Insight chips */
 .insights {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1064,10 +1122,254 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-tab_exec, tab_trends, tab_channels, tab_customers, tab_team, tab_recent = st.tabs(
-    ["  Executive Summary  ", "  Trends  ", "  Channels  ",
+(tab_brief, tab_exec, tab_trends, tab_channels,
+ tab_customers, tab_team, tab_recent) = st.tabs(
+    ["  Brief  ", "  Executive Summary  ", "  Trends  ", "  Channels  ",
      "  Customers  ", "  Salespeople  ", "  Live Activity  "]
 )
+
+
+# -------- Written Brief --------
+def _build_brief(df_curr, df_prev, scope_label, currency,
+                 selected_channels, all_channels, today_local):
+    """Generate a paragraph-style executive brief from the current slice."""
+    if df_curr.empty:
+        return ("<p class='brief-lead'>No transactions were recorded in the "
+                f"<b>{scope_label}</b> window for the selected channels. "
+                "Try widening the period or re-enabling channels in the slicer "
+                "above.</p>")
+
+    rev = float(df_curr["amount_total"].sum())
+    prev = float(df_prev["amount_total"].sum()) if not df_prev.empty else 0.0
+    pct = ((rev - prev) / prev * 100) if prev else None
+    orders = len(df_curr)
+    aov = rev / orders if orders else 0
+    customers = df_curr["customer"].nunique()
+
+    prev_orders = len(df_prev)
+    prev_aov = (float(df_prev["amount_total"].sum()) / prev_orders) if prev_orders else 0
+    prev_customers = df_prev["customer"].nunique() if not df_prev.empty else 0
+
+    ch_rev = df_curr.groupby("channel")["amount_total"].sum().sort_values(ascending=False)
+    cust_rev = df_curr.groupby("customer")["amount_total"].sum().sort_values(ascending=False)
+    sp_rev = df_curr.groupby("salesperson")["amount_total"].sum().sort_values(ascending=False)
+    by_day = df_curr.groupby("day")["amount_total"].sum().sort_values(ascending=False)
+
+    # Channel YoY growth (current vs prior)
+    ch_prev_rev = (df_prev.groupby("channel")["amount_total"].sum()
+                   if not df_prev.empty else pd.Series(dtype=float))
+    ch_growth = []
+    for c, r in ch_rev.items():
+        p = ch_prev_rev.get(c, 0)
+        if p > 0:
+            ch_growth.append((c, (r - p) / p * 100, r))
+    ch_growth.sort(key=lambda x: x[1], reverse=True)
+
+    def acc(v, color="#19E3B6"):
+        return f"<b style='color:{color}'>{v}</b>"
+
+    def signed_pct(p):
+        if p is None:
+            return "<span style='color:#71717A'>n/a</span>"
+        sign = "+" if p >= 0 else "−"
+        color = "#22C55E" if p >= 0 else "#F87171"
+        return f"<b style='color:{color}'>{sign}{abs(p):.1f}%</b>"
+
+    # Channel filter context
+    ch_ctx = ""
+    if all_channels and len(selected_channels) < len(all_channels):
+        ch_ctx = (f" Filtered view: <b>{len(selected_channels)}</b> of "
+                  f"{len(all_channels)} channels "
+                  f"({', '.join(selected_channels)}).")
+
+    # ----- Lead paragraph -----
+    p_lead = (
+        f"<p class='brief-lead'>"
+        f"During <b>{scope_label}</b>, Fyxx generated "
+        f"{acc(fmt_money(rev, currency, compact=True))} in net revenue "
+        f"across {acc(f'{orders:,}')} transactions and "
+        f"{acc(f'{customers:,}')} active customers. "
+    )
+    if pct is not None:
+        direction = "ahead of" if pct >= 0 else "behind"
+        p_lead += (f"That puts the period {signed_pct(pct)} {direction} "
+                   f"the prior comparable window "
+                   f"({fmt_money(prev, currency, compact=True)}). ")
+    p_lead += f"Average order value sits at {acc(fmt_money(aov, currency))}"
+    aov_pct = ((aov - prev_aov) / prev_aov * 100) if prev_aov else None
+    if aov_pct is not None:
+        p_lead += f", {signed_pct(aov_pct)} versus prior."
+    else:
+        p_lead += "."
+    p_lead += ch_ctx + "</p>"
+
+    # ----- Channel paragraph -----
+    p_ch = ""
+    if len(ch_rev) > 0:
+        top_ch = ch_rev.index[0]
+        top_ch_amt = ch_rev.iloc[0]
+        top_ch_pct = top_ch_amt / rev * 100 if rev else 0
+        p_ch = (
+            f"<p><b>Channel mix.</b> "
+            f"{acc(top_ch)} continues to lead, contributing "
+            f"{acc(fmt_money(top_ch_amt, currency, compact=True))} "
+            f"({top_ch_pct:.1f}% of revenue). "
+        )
+        if len(ch_rev) > 1:
+            second = ch_rev.index[1]
+            second_amt = ch_rev.iloc[1]
+            second_pct = second_amt / rev * 100 if rev else 0
+            p_ch += (f"{acc(second)} follows at "
+                     f"{acc(fmt_money(second_amt, currency, compact=True))} "
+                     f"({second_pct:.1f}%). ")
+        if ch_growth:
+            best_ch = ch_growth[0]
+            worst_ch = ch_growth[-1]
+            if best_ch[1] >= 0:
+                p_ch += (f"Fastest-growing channel: {acc(best_ch[0])} "
+                         f"at {signed_pct(best_ch[1])}. ")
+            if worst_ch[1] < 0 and worst_ch[0] != best_ch[0]:
+                p_ch += (f"Underperforming: {acc(worst_ch[0], '#F87171')} "
+                         f"at {signed_pct(worst_ch[1])}. ")
+        p_ch += "</p>"
+
+    # ----- Customer + sales paragraph -----
+    p_cust = "<p>"
+    if len(cust_rev) > 0:
+        top_cust = cust_rev.index[0]
+        top_cust_amt = cust_rev.iloc[0]
+        top_cust_pct = top_cust_amt / rev * 100 if rev else 0
+        p_cust += (
+            f"<b>Demand concentration.</b> "
+            f"The single largest customer was {acc(top_cust)} at "
+            f"{acc(fmt_money(top_cust_amt, currency, compact=True))} "
+            f"({top_cust_pct:.1f}% of period revenue). "
+        )
+        # Top-10 share
+        top10_share = cust_rev.head(10).sum() / rev * 100 if rev else 0
+        p_cust += (f"The top 10 customers together account for "
+                   f"{acc(f'{top10_share:.1f}%')} of revenue. ")
+    if customers and prev_customers:
+        cust_delta = (customers - prev_customers) / prev_customers * 100
+        p_cust += (f"Active customer base moved {signed_pct(cust_delta)} "
+                   f"versus the prior period.")
+    p_cust += "</p>"
+
+    # ----- Sales team paragraph -----
+    p_team = ""
+    if len(sp_rev) > 0:
+        top_sp = sp_rev.index[0]
+        top_sp_amt = sp_rev.iloc[0]
+        top_sp_pct = top_sp_amt / rev * 100 if rev else 0
+        p_team = (
+            f"<p><b>Sales team.</b> "
+            f"{acc(top_sp)} led the team, attributed with "
+            f"{acc(fmt_money(top_sp_amt, currency, compact=True))} "
+            f"({top_sp_pct:.1f}% of period revenue) "
+        )
+        if len(sp_rev) >= 3:
+            top3_share = sp_rev.head(3).sum() / rev * 100 if rev else 0
+            p_team += (f"and the top 3 salespeople drove "
+                       f"{acc(f'{top3_share:.1f}%')} of total revenue.")
+        else:
+            p_team = p_team.rstrip() + "."
+        p_team += "</p>"
+
+    # ----- Standout day -----
+    p_day = ""
+    if not by_day.empty and len(by_day) > 1:
+        best_day = by_day.idxmax()
+        best_day_amt = by_day.max()
+        avg_day = by_day.mean()
+        ratio = best_day_amt / avg_day if avg_day else 1
+        p_day = (
+            f"<p><b>Standout day.</b> "
+            f"{acc(best_day.strftime('%A · %d %b %Y'))} delivered "
+            f"{acc(fmt_money(best_day_amt, currency, compact=True))}"
+        )
+        if ratio >= 1.5:
+            p_day += f" — roughly {ratio:.1f}× the daily average for the period."
+        else:
+            p_day += "."
+        p_day += "</p>"
+
+    # ----- Direction / closing -----
+    closing = ""
+    if pct is not None:
+        if pct >= 10:
+            closing = (
+                "<p class='brief-callout brief-good'>"
+                "Net direction is clearly positive — momentum is on the upside. "
+                "Recommended focus: protect the top-performing channel and "
+                "double down on whatever drove the largest customers' purchases."
+                "</p>"
+            )
+        elif pct >= 0:
+            closing = (
+                "<p class='brief-callout brief-neutral'>"
+                "Performance is broadly in line with the prior period. "
+                "Watch the underperforming channels and customer concentration "
+                "as leading indicators."
+                "</p>"
+            )
+        else:
+            closing = (
+                "<p class='brief-callout brief-bad'>"
+                "Performance trails the prior period. "
+                "Recommended focus: identify which channels and customers slipped, "
+                "and whether the gap is volume (orders) or value (AOV) driven."
+                "</p>"
+            )
+
+    return p_lead + p_ch + p_cust + p_team + p_day + closing
+
+
+with tab_brief:
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Executive Brief</h3>"
+        f"<div class='sec-sub'>Auto-generated narrative · {scope_label} "
+        f"· {len(selected_channels)} channel(s)</div></div>",
+        unsafe_allow_html=True,
+    )
+    brief_html = _build_brief(
+        df_curr, df_prev, scope_label, CURRENCY,
+        selected_channels, all_channels, today_local,
+    )
+    st.markdown(
+        f"<div class='brief-card'>{brief_html}</div>",
+        unsafe_allow_html=True,
+    )
+    # Quick top-3 table strip
+    if not df_curr.empty:
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            st.markdown("<div class='sec'><h3>Top channels</h3></div>",
+                        unsafe_allow_html=True)
+            ch_top = (df_curr.groupby("channel")["amount_total"].sum()
+                      .sort_values(ascending=False).head(5).reset_index())
+            ch_top.columns = ["Channel", f"Revenue ({CURRENCY})"]
+            st.dataframe(ch_top, use_container_width=True, hide_index=True,
+                         column_config={f"Revenue ({CURRENCY})":
+                                        st.column_config.NumberColumn(format="%,.0f")})
+        with b2:
+            st.markdown("<div class='sec'><h3>Top customers</h3></div>",
+                        unsafe_allow_html=True)
+            cu_top = (df_curr.groupby("customer")["amount_total"].sum()
+                      .sort_values(ascending=False).head(5).reset_index())
+            cu_top.columns = ["Customer", f"Revenue ({CURRENCY})"]
+            st.dataframe(cu_top, use_container_width=True, hide_index=True,
+                         column_config={f"Revenue ({CURRENCY})":
+                                        st.column_config.NumberColumn(format="%,.0f")})
+        with b3:
+            st.markdown("<div class='sec'><h3>Top salespeople</h3></div>",
+                        unsafe_allow_html=True)
+            sp_top = (df_curr.groupby("salesperson")["amount_total"].sum()
+                      .sort_values(ascending=False).head(5).reset_index())
+            sp_top.columns = ["Salesperson", f"Revenue ({CURRENCY})"]
+            st.dataframe(sp_top, use_container_width=True, hide_index=True,
+                         column_config={f"Revenue ({CURRENCY})":
+                                        st.column_config.NumberColumn(format="%,.0f")})
 
 
 # -------- Executive Summary --------
