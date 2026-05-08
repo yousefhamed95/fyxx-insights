@@ -495,7 +495,7 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     border: 1px solid rgba(161,161,170, 0.25);
 }
 
-/* Hero — animated gradient border using border-box trick (browser-safe) */
+/* Hero — animated gradient border, single neon-green family only */
 .hero {
     display: flex; align-items: center; justify-content: space-between;
     gap: 18px; flex-wrap: wrap;
@@ -505,7 +505,8 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     border: 1px solid transparent;
     background:
         linear-gradient(160deg, #131318 0%, #0E0E13 100%) padding-box,
-        linear-gradient(135deg, #19E3B6, #38BDF8, #A78BFA, #38BDF8, #19E3B6) border-box;
+        linear-gradient(135deg,
+            #0E5A4A, #19E3B6, #5FF5CB, #19E3B6, #0E5A4A) border-box;
     background-size: auto, 300% 300%;
     animation: hero-shimmer 12s linear infinite;
 }
