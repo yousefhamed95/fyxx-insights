@@ -326,11 +326,47 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 .year-card .year-meta {
     color: #A1A1AA; font-size: 12.5px; margin-top: 14px; line-height: 1.7;
 }
-.year-card.is-current { border-color: rgba(25,227,182,0.45); }
+.year-card.is-current {
+    border-color: rgba(25,227,182,0.45);
+    animation: yc-breathe 4.2s ease-in-out infinite;
+}
 .year-card.is-current::after {
     content: ""; position: absolute; right: -50px; top: -50px;
-    width: 160px; height: 160px;
-    background: radial-gradient(closest-side, rgba(25,227,182,0.16), transparent);
+    width: 180px; height: 180px;
+    background: radial-gradient(closest-side, rgba(25,227,182,0.18), transparent 70%);
+    transform-origin: 50% 50%;
+    animation: yc-glow 4.2s ease-in-out infinite;
+    pointer-events: none;
+}
+.year-card.is-current::before {
+    content: "";
+    position: absolute;
+    top: 18px; right: 20px;
+    width: 9px; height: 9px;
+    background: #19E3B6;
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(25,227,182, 0.7);
+    animation: yc-dot 1.8s ease-in-out infinite;
+    z-index: 2;
+}
+@keyframes yc-breathe {
+    0%, 100% {
+        border-color: rgba(25,227,182,0.30);
+        box-shadow: 0 0 0 0 rgba(25,227,182, 0);
+    }
+    50% {
+        border-color: rgba(25,227,182,0.65);
+        box-shadow: 0 0 26px -4px rgba(25,227,182, 0.18);
+    }
+}
+@keyframes yc-glow {
+    0%, 100% { opacity: 0.55; transform: scale(0.92); }
+    50%      { opacity: 1.0;  transform: scale(1.08); }
+}
+@keyframes yc-dot {
+    0%   { box-shadow: 0 0 0 0 rgba(25,227,182, 0.75); transform: scale(1); }
+    70%  { box-shadow: 0 0 0 12px rgba(25,227,182, 0); transform: scale(1.05); }
+    100% { box-shadow: 0 0 0 0 rgba(25,227,182, 0); transform: scale(1); }
 }
 
 /* Section titles */
