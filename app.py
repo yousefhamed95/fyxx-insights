@@ -2332,63 +2332,99 @@ with tab_geo:
             max_rev = city_agg["revenue"].max() or 1
             city_agg["bubble"] = (city_agg["revenue"] / max_rev) ** 0.5 * 60 + 8
 
-            # Map figure
-            fig = go.Figure(go.Scattergeo(
-                lon=city_agg["lon"],
-                lat=city_agg["lat"],
-                text=[f"<b>{c}</b><br>"
-                      f"Revenue: {fmt_money(r, CURRENCY, compact=True)}<br>"
-                      f"Orders: {o:,}<br>"
-                      f"Customers: {cu:,}"
-                      for c, r, o, cu in zip(
-                          city_agg["city_raw"], city_agg["revenue"],
-                          city_agg["orders"], city_agg["customers"])],
+            # ---- Professional dark map (Carto Dark Matter, no token needed) ----
+            hover_text = [
+                f"<b>{c}</b><br>"
+                f"Revenue: {fmt_money(r, CURRENCY, compact=True)}<br>"
+                f"Orders: {o:,}<br>"
+                f"Customers: {cu:,}"
+                for c, r, o, cu in zip(
+                    city_agg["city_raw"], city_agg["revenue"],
+                    city_agg["orders"], city_agg["customers"])
+            ]
+
+            # Smart zoom and centre based on the spread of cities
+            lat_min, lat_max = float(city_agg["lat"].min()), float(city_agg["lat"].max())
+            lon_min, lon_max = float(city_agg["lon"].min()), float(city_agg["lon"].max())
+            span = max(lat_max - lat_min, lon_max - lon_min)
+            if span < 0.5:
+                zoom = 8.5
+            elif span < 2:
+                zoom = 7.2
+            elif span < 5:
+                zoom = 6.4
+            elif span < 10:
+                zoom = 4.8
+            else:
+                zoom = 3.2
+            center_lat = (lat_max + lat_min) / 2
+            center_lon = (lon_max + lon_min) / 2
+
+            # Two-layer effect: a soft outer halo behind the bright core marker
+            fig = go.Figure()
+            # Halo layer
+            fig.add_trace(go.Scattermapbox(
+                lon=city_agg["lon"], lat=city_agg["lat"],
                 mode="markers",
+                marker=dict(
+                    size=city_agg["bubble"] * 1.7,
+                    color="#19E3B6",
+                    opacity=0.18,
+                    allowoverlap=True,
+                ),
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+            # Core marker layer
+            fig.add_trace(go.Scattermapbox(
+                lon=city_agg["lon"], lat=city_agg["lat"],
+                mode="markers+text",
                 marker=dict(
                     size=city_agg["bubble"],
                     color=city_agg["revenue"],
-                    colorscale=[[0, "#0E5A4A"], [0.5, "#19E3B6"], [1, "#5EFFC9"]],
-                    line=dict(width=1.2, color="#19E3B6"),
-                    opacity=0.85,
-                    sizemode="diameter",
+                    colorscale=[
+                        [0.0, "#0E5A4A"],
+                        [0.5, "#19E3B6"],
+                        [1.0, "#7FFFD4"],
+                    ],
+                    opacity=0.92,
+                    allowoverlap=True,
                 ),
-                hovertemplate="%{text}<extra></extra>",
+                text=city_agg["city_raw"],
+                textposition="top right",
+                textfont=dict(
+                    family="Inter, sans-serif",
+                    size=11,
+                    color="#F4F4F5",
+                ),
+                customdata=hover_text,
+                hovertemplate="%{customdata}<extra></extra>",
+                showlegend=False,
             ))
-            # Auto-fit the map: tight on Jordan if everything is local, wider
-            # if there are international customers in the slice
-            lat_lo = float(city_agg["lat"].min()) - 0.5
-            lat_hi = float(city_agg["lat"].max()) + 0.5
-            lon_lo = float(city_agg["lon"].min()) - 0.5
-            lon_hi = float(city_agg["lon"].max()) + 0.5
-            # Default to Jordan-tight if span is small
-            if (lat_hi - lat_lo) < 6 and (lon_hi - lon_lo) < 6:
-                lat_lo, lat_hi = 28.5, 33.7
-                lon_lo, lon_hi = 34.5, 39.5
 
             fig.update_layout(
-                geo=dict(
-                    showland=True, landcolor="#15151B",
-                    showocean=True, oceancolor="#08080A",
-                    showcountries=True, countrycolor="#2A2A36",
-                    countrywidth=0.6,
-                    showlakes=True, lakecolor="#08080A",
-                    showcoastlines=True, coastlinecolor="#2A2A36",
-                    bgcolor="rgba(0,0,0,0)",
-                    projection_type="mercator",
-                    lataxis=dict(range=[lat_lo, lat_hi]),
-                    lonaxis=dict(range=[lon_lo, lon_hi]),
+                mapbox=dict(
+                    style="carto-darkmatter",
+                    center=dict(lat=center_lat, lon=center_lon),
+                    zoom=zoom,
                 ),
                 paper_bgcolor=PALETTE["surface"],
                 plot_bgcolor=PALETTE["surface"],
                 margin=dict(l=0, r=0, t=0, b=0),
-                height=540,
+                height=560,
                 font=dict(family="Inter, sans-serif", color=PALETTE["text_dim"]),
-                hoverlabel=dict(bgcolor=PALETTE["surface2"],
-                                bordercolor=PALETTE["border_lt"],
-                                font_color=PALETTE["text"],
-                                font_family="Inter"),
+                hoverlabel=dict(
+                    bgcolor=PALETTE["surface2"],
+                    bordercolor=PALETTE["border_lt"],
+                    font_color=PALETTE["text"],
+                    font_family="Inter",
+                    font_size=12,
+                ),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(
+                fig, use_container_width=True,
+                config={"displayModeBar": False, "scrollZoom": True},
+            )
 
             # Below the map: bar chart + table
             g1, g2 = st.columns([3, 2])
