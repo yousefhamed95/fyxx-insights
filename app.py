@@ -100,13 +100,13 @@ h2 { font-size: 18px !important; font-weight: 600 !important; color: #E4E4E7 !im
 h3 { font-size: 13.5px !important; font-weight: 700 !important; color: #A1A1AA !important;
      text-transform: uppercase; letter-spacing: 0.10em; }
 
-/* The hero scope label uses a teal→blue gradient (Linear-style) */
+/* Hero scope label — solid neon green to match the rest of the accents */
 .hero-accent {
-    color: #19E3B6;
-    background: linear-gradient(90deg, #19E3B6 0%, #38BDF8 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #19E3B6 !important;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    -webkit-text-fill-color: #19E3B6 !important;
+    background-clip: initial !important;
 }
 
 /* Sidebar */
