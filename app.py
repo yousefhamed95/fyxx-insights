@@ -1641,12 +1641,13 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-(tab_brief, tab_exec, tab_pace, tab_profit, tab_alerts, tab_trends, tab_channels,
- tab_customers, tab_cohorts, tab_team, tab_geo, tab_compare,
+(tab_brief, tab_exec, tab_pace, tab_profit, tab_loss, tab_alerts, tab_trends,
+ tab_channels, tab_customers, tab_cohorts, tab_team, tab_geo, tab_compare,
  tab_recent) = st.tabs(
     ["  Brief  ", "  Executive Summary  ", "  Pacing  ", "  Profitability  ",
-     "  Alerts  ", "  Trends  ", "  Channels  ", "  Customers  ",
-     "  Cohorts  ", "  Salespeople  ", "  Geography  ", "  Compare  ", "  Live  "]
+     "  Loss Orders  ", "  Alerts  ", "  Trends  ", "  Channels  ",
+     "  Customers  ", "  Cohorts  ", "  Salespeople  ", "  Geography  ",
+     "  Compare  ", "  Live  "]
 )
 
 
@@ -2555,6 +2556,279 @@ with tab_profit:
                     f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
                     "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
                 },
+            )
+
+
+# -------- Loss Orders --------
+with tab_loss:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Orders sold at a loss</h3>"
+        f"<div class='sec-sub'>{scope_label} · "
+        "every order whose Odoo margin is negative — sorted worst first</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    if df_curr.empty or "margin" not in df_curr.columns:
+        st.info("No data in selected window.")
+    else:
+        losses_df = df_curr[df_curr["margin"] < 0].copy()
+
+        if losses_df.empty:
+            st.markdown(
+                "<div class='brief-card'><p class='brief-callout brief-good'>"
+                "No loss-making orders in this period for the selected channels. "
+                "Every order had a positive (or zero) gross margin."
+                "</p></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            # Compute extras for the detail view
+            losses_df = losses_df.sort_values("margin")  # most negative first
+            losses_df["revenue"] = losses_df["amount_total"]
+            losses_df["cost"] = losses_df["revenue"] - losses_df["margin"]
+            losses_df["margin_pct"] = losses_df.apply(
+                lambda r: r["margin"] / r["revenue"] * 100 if r["revenue"] else 0,
+                axis=1,
+            )
+
+            # ---- KPI strip ----
+            n_loss = len(losses_df)
+            n_total = len(df_curr)
+            loss_share = n_loss / n_total * 100 if n_total else 0
+            total_loss = float(losses_df["margin"].sum())  # negative number
+            total_loss_rev = float(losses_df["revenue"].sum())
+            worst_order = losses_df.iloc[0]
+
+            kpi_html = "<div class='kpi-grid'>"
+            kpi_html += kpi_card(
+                "Loss-making orders",
+                f"{n_loss:,}",
+                f"<span style='color:#F87171;font-weight:600'>{loss_share:.1f}%</span> "
+                f"<span style='color:#71717A'>of {n_total:,} total orders</span>",
+                "",
+            )
+            kpi_html += kpi_card(
+                "Total loss",
+                f"<span style='color:#F87171'>"
+                f"{fmt_money(abs(total_loss), CURRENCY, compact=True)}</span>",
+                f"<span style='color:#71717A'>across "
+                f"{fmt_money(total_loss_rev, CURRENCY, compact=True)} of revenue "
+                f"sold below cost</span>",
+                "",
+            )
+            kpi_html += kpi_card(
+                "Worst single order",
+                f"<span style='color:#F87171'>"
+                f"{fmt_money(abs(worst_order['margin']), CURRENCY)}</span>",
+                f"<b>{worst_order['name']}</b> · {worst_order['customer']}",
+                f"<span style='color:#71717A'>{worst_order['channel']} · "
+                f"{worst_order['margin_pct']:.1f}% margin</span>",
+            )
+            avg_loss = total_loss / n_loss if n_loss else 0
+            kpi_html += kpi_card(
+                "Average loss per order",
+                f"<span style='color:#F87171'>"
+                f"{fmt_money(abs(avg_loss), CURRENCY)}</span>",
+                f"<span style='color:#71717A'>per loss-making order</span>",
+                "",
+            )
+            kpi_html += "</div>"
+            st.markdown(kpi_html, unsafe_allow_html=True)
+
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+            # ---- Charts row ----
+            c1, c2 = st.columns([3, 2])
+
+            with c1:
+                st.markdown("<div class='sec'><h3>Loss by channel</h3>"
+                            "<div class='sec-sub'>Total negative margin per channel</div></div>",
+                            unsafe_allow_html=True)
+                ch_loss = (losses_df.groupby("channel")
+                           .agg(loss=("margin", "sum"),
+                                n=("margin", "count"))
+                           .reset_index()
+                           .sort_values("loss"))  # most negative first
+                ch_loss["abs_loss"] = ch_loss["loss"].abs()
+                fig = go.Figure(go.Bar(
+                    y=ch_loss["channel"],
+                    x=ch_loss["abs_loss"],
+                    orientation="h",
+                    marker=dict(
+                        color=ch_loss["abs_loss"],
+                        colorscale=[[0, "#7F1D1D"], [1, "#F87171"]],
+                        line=dict(width=0),
+                    ),
+                    text=[f"{v:,.0f}  ({n} orders)"
+                          for v, n in zip(ch_loss["abs_loss"], ch_loss["n"])],
+                    texttemplate="%{text}",
+                    textposition="outside",
+                    textfont=dict(color=PALETTE["text_dim"], size=11),
+                    cliponaxis=False,
+                    hovertemplate="<b>%{y}</b><br>"
+                                  "Loss: %{x:,.0f} " + CURRENCY + "<extra></extra>",
+                ))
+                st.plotly_chart(style_fig(fig, height=360, show_legend=False),
+                                use_container_width=True)
+
+            with c2:
+                st.markdown("<div class='sec'><h3>Loss share</h3>"
+                            "<div class='sec-sub'>Where the bleed is concentrated</div></div>",
+                            unsafe_allow_html=True)
+                ch_loss_pie = ch_loss.copy()
+                fig = go.Figure(data=[go.Pie(
+                    labels=ch_loss_pie["channel"],
+                    values=ch_loss_pie["abs_loss"],
+                    hole=0.65,
+                    marker=dict(colors=channel_colors_for(ch_loss_pie["channel"]),
+                                line=dict(color=PALETTE["surface"], width=3)),
+                    texttemplate="%{value:,.0f}<br>%{percent}",
+                    textfont=dict(size=11, color=PALETTE["text"]),
+                    hovertemplate="<b>%{label}</b><br>"
+                                  "%{value:,.0f} " + CURRENCY +
+                                  "<br>%{percent}<extra></extra>",
+                )])
+                fig.update_layout(annotations=[dict(
+                    text=f"<b style='color:#F87171'>"
+                         f"{fmt_money(abs(total_loss), CURRENCY, compact=True)}</b>"
+                         f"<br><span style='font-size:10px;color:#A1A1AA'>Total loss</span>",
+                    showarrow=False,
+                    font=dict(size=14, color=PALETTE["text"]))])
+                st.plotly_chart(style_fig(fig, height=360),
+                                use_container_width=True)
+
+            # ---- Loss trend over time ----
+            st.markdown("<div class='sec' style='margin-top:14px'>"
+                        "<h3>Loss trend</h3>"
+                        f"<div class='sec-sub'>Daily total loss · {scope_label}</div></div>",
+                        unsafe_allow_html=True)
+            daily_loss = (losses_df.groupby("day")
+                          .agg(loss=("margin", "sum"),
+                               n=("margin", "count"))
+                          .reset_index()
+                          .sort_values("day"))
+            daily_loss["abs_loss"] = daily_loss["loss"].abs()
+            if not daily_loss.empty:
+                show_lbl = len(daily_loss) <= 45
+                fig = go.Figure(go.Bar(
+                    x=daily_loss["day"], y=daily_loss["abs_loss"],
+                    text=daily_loss["abs_loss"] if show_lbl else None,
+                    texttemplate="%{text:,.0f}" if show_lbl else None,
+                    textposition="outside",
+                    textfont=dict(color="#F87171", size=10),
+                    cliponaxis=False,
+                    marker=dict(color="#F87171", line=dict(width=0)),
+                    customdata=daily_loss["n"],
+                    hovertemplate="<b>%{x|%d %b %Y}</b><br>"
+                                  "Loss: %{y:,.0f} " + CURRENCY + "<br>"
+                                  "%{customdata} orders<extra></extra>",
+                ))
+                st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                                use_container_width=True)
+
+            # ---- Top loss-making customers / salespeople ----
+            l1, l2 = st.columns(2)
+            with l1:
+                st.markdown("<div class='sec'><h3>Worst customers</h3>"
+                            "<div class='sec-sub'>Cumulative loss across orders</div></div>",
+                            unsafe_allow_html=True)
+                cust_loss = (losses_df.groupby("customer")
+                             .agg(loss=("margin", "sum"),
+                                  rev=("revenue", "sum"),
+                                  n=("margin", "count"))
+                             .reset_index())
+                cust_loss["abs_loss"] = cust_loss["loss"].abs()
+                cust_loss = cust_loss.sort_values("loss").head(15)
+                cust_loss = cust_loss[["customer", "n", "rev", "abs_loss"]]
+                cust_loss.columns = ["Customer", "Loss orders",
+                                     f"Revenue ({CURRENCY})",
+                                     f"Loss ({CURRENCY})"]
+                st.dataframe(
+                    cust_loss, use_container_width=True, hide_index=True, height=460,
+                    column_config={
+                        f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                        f"Loss ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                        "Loss orders": st.column_config.NumberColumn(format="%,d"),
+                    },
+                )
+            with l2:
+                st.markdown("<div class='sec'><h3>Salespeople with most losses</h3></div>",
+                            unsafe_allow_html=True)
+                sp_loss = (losses_df.groupby("salesperson")
+                           .agg(loss=("margin", "sum"),
+                                rev=("revenue", "sum"),
+                                n=("margin", "count"))
+                           .reset_index())
+                sp_loss["abs_loss"] = sp_loss["loss"].abs()
+                sp_loss = sp_loss.sort_values("loss").head(15)
+                sp_loss = sp_loss[["salesperson", "n", "rev", "abs_loss"]]
+                sp_loss.columns = ["Salesperson", "Loss orders",
+                                   f"Revenue ({CURRENCY})",
+                                   f"Loss ({CURRENCY})"]
+                st.dataframe(
+                    sp_loss, use_container_width=True, hide_index=True, height=460,
+                    column_config={
+                        f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                        f"Loss ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                        "Loss orders": st.column_config.NumberColumn(format="%,d"),
+                    },
+                )
+
+            # ---- Detailed loss-orders table ----
+            st.markdown("<div class='sec' style='margin-top:14px'>"
+                        "<h3>Every loss-making order — detailed</h3>"
+                        f"<div class='sec-sub'>{n_loss:,} orders · sorted by largest loss first · "
+                        "click any column header to re-sort</div></div>",
+                        unsafe_allow_html=True)
+
+            # Optional channel filter just for this table (in addition to top slicer)
+            chan_options = sorted(losses_df["channel"].dropna().unique().tolist())
+            if len(chan_options) > 1:
+                pick = st.multiselect(
+                    "Filter detail by channel",
+                    chan_options, default=chan_options,
+                    label_visibility="collapsed", key="loss_detail_ch",
+                )
+                if pick:
+                    losses_view = losses_df[losses_df["channel"].isin(pick)]
+                else:
+                    losses_view = losses_df
+            else:
+                losses_view = losses_df
+
+            losses_view = losses_view.copy()
+            losses_view["date"] = losses_view["dt_local"].dt.strftime("%Y-%m-%d %H:%M")
+            losses_view["abs_loss"] = losses_view["margin"].abs()
+            detail = losses_view[[
+                "name", "date", "channel", "source", "customer", "salesperson",
+                "revenue", "cost", "abs_loss", "margin_pct", "state"
+            ]].copy()
+            detail.columns = [
+                "Reference", "Date", "Channel", "Source", "Customer",
+                "Salesperson", f"Revenue ({CURRENCY})", f"Cost ({CURRENCY})",
+                f"Loss ({CURRENCY})", "Margin %", "State"
+            ]
+            st.dataframe(
+                detail, use_container_width=True, hide_index=True, height=620,
+                column_config={
+                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Cost ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Loss ({CURRENCY})": st.column_config.NumberColumn(
+                        format="%,.0f",
+                        help="Absolute amount lost (negative margin)"),
+                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                },
+            )
+
+            # ---- CSV download ----
+            csv_bytes = detail.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="◌  Download loss orders as CSV",
+                data=csv_bytes,
+                file_name=f"fyxx-loss-orders-{curr_start}-to-{curr_end}.csv",
+                mime="text/csv",
+                use_container_width=False,
             )
 
 
