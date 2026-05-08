@@ -421,14 +421,17 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 }
 .kpi-spark { display: block; width: 100%; }
 
-/* ===== Tier-1 polish: number-entry animation ===== */
+/* ===== Tier-1 polish: number-entry animation (bounce/overshoot for premium feel) ===== */
 @keyframes value-fade-up {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    0%   { opacity: 0; transform: translateY(16px) scale(0.92); filter: blur(2px); }
+    55%  { opacity: 1; transform: translateY(-3px) scale(1.025); filter: blur(0); }
+    80%  { transform: translateY(1px) scale(0.998); }
+    100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 .kpi-value, .year-value {
-    animation: value-fade-up 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    animation: value-fade-up 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     will-change: transform, opacity;
+    display: inline-block;  /* needed so transforms apply cleanly */
 }
 /* Stagger so the four KPIs ripple in nicely instead of all at once */
 .kpi-grid .kpi:nth-of-type(1) .kpi-value { animation-delay: 0.05s; }
@@ -456,28 +459,39 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 }
 
 /* ===== Tier-1 polish: hover micro-interactions ===== */
-.kpi, .year-card, .alert-card, .insight {
+.kpi, .year-card, .alert-card, .insight, .brief-card {
     transition:
         transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1),
         box-shadow 0.22s ease,
         border-color 0.22s ease;
 }
 .kpi:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 30px -12px rgba(25, 227, 182, 0.28),
-                0 1px 0 0 rgba(25, 227, 182, 0.10) inset;
-    border-color: rgba(25, 227, 182, 0.30);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 36px -14px rgba(25, 227, 182, 0.32),
+                0 1px 0 0 rgba(25, 227, 182, 0.12) inset;
+    border-color: rgba(25, 227, 182, 0.32);
 }
 .year-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 30px -12px rgba(25, 227, 182, 0.30);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 36px -14px rgba(25, 227, 182, 0.34);
 }
 .alert-card:hover {
     transform: translateY(-1px);
-    border-color: rgba(244, 244, 245, 0.18);
+    border-color: rgba(244, 244, 245, 0.20);
+    box-shadow: 0 6px 22px -10px rgba(0, 0, 0, 0.4);
 }
 .insight:hover {
-    border-color: rgba(25, 227, 182, 0.25);
+    border-color: rgba(25, 227, 182, 0.30);
+    transform: translateY(-1px);
+}
+.brief-card:hover {
+    border-color: rgba(56, 189, 248, 0.20);
+    box-shadow: 0 8px 32px -16px rgba(56, 189, 248, 0.20);
+}
+/* Subtle shimmer-on-hover for KPI labels */
+.kpi:hover .kpi-label {
+    color: #19E3B6;
+    transition: color 0.2s ease;
 }
 
 /* ===== Tier-1 polish: sticky scope strip ===== */
@@ -512,6 +526,46 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 }
 .scope-strip .dim { color: #71717A; }
 .scope-strip b { color: #F4F4F5; font-weight: 600; }
+
+/* ===== Print / PDF stylesheet ===== */
+@media print {
+    /* Hide everything that shouldn't appear in a printed report */
+    section[data-testid="stSidebar"],
+    [data-baseweb="tab-list"],
+    .ticker-bar,
+    .scope-strip,
+    .stButton,
+    [data-testid="stFileUploader"],
+    button,
+    iframe[title*="components"] {
+        display: none !important;
+    }
+    /* Print-friendly: keep dark theme but remove animations and reduce shadows */
+    .stApp {
+        background: #0A0A0B !important;
+    }
+    .stApp::before, .stApp::after { display: none !important; }
+    .kpi, .year-card, .alert-card, .brief-card, .hero,
+    .insight, [data-testid="stDataFrame"], [data-testid="stMetric"] {
+        animation: none !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+    }
+    .kpi::after { display: none !important; }   /* moving beam */
+    .year-card.is-current::before,
+    .year-card.is-current::after { display: none !important; }
+    .hero { background: #131318 !important; }
+    /* Show ALL tab content sequentially when printing — gives a complete report */
+    [data-baseweb="tab-panel"] {
+        display: block !important;
+        page-break-after: always;
+    }
+    .block-container {
+        max-width: none !important;
+        padding: 16px !important;
+    }
+    h1, h2, h3, h4 { page-break-after: avoid; }
+}
 .kpi {
     background: linear-gradient(160deg, #131318 0%, #0E0E12 100%);
     border: 1px solid #23232B;
@@ -1161,6 +1215,67 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     return df
 
 
+# Order-line fetcher (for the SKU / Products tab) — read-only, cached.
+@st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
+def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
+    """Fetch sale.order.line + pos.order.line in a UTC window.
+    Returns flat row list with product, qty, revenue (net), margin, channel hint."""
+    so_lines = []
+    pos_lines = []
+    try:
+        so_lines = kw(
+            "sale.order.line", "search_read",
+            [[["order_id.date_order", ">=", start_iso],
+              ["order_id.date_order", "<=", end_iso],
+              ["order_id.state", "in", ["sale", "done"]]]],
+            {"fields": ["product_id", "product_uom_qty", "price_subtotal",
+                        "margin", "purchase_price", "order_id"],
+             "limit": 500000},
+        )
+    except Exception:
+        so_lines = []
+    try:
+        pos_lines = kw(
+            "pos.order.line", "search_read",
+            [[["order_id.date_order", ">=", start_iso],
+              ["order_id.date_order", "<=", end_iso],
+              ["order_id.state", "in", ["paid", "done", "invoiced"]],
+              ["order_id.config_id", "not in", EXCLUDED_POS_CONFIG_IDS]]],
+            {"fields": ["product_id", "qty", "price_subtotal", "margin",
+                        "total_cost", "order_id"],
+             "limit": 500000},
+        )
+    except Exception:
+        pos_lines = []
+
+    rows = []
+    for l in so_lines:
+        if not l.get("product_id"):
+            continue
+        rows.append({
+            "product_id": l["product_id"][0],
+            "product_name": l["product_id"][1],
+            "order_id": l["order_id"][0] if l.get("order_id") else None,
+            "qty": float(l.get("product_uom_qty") or 0),
+            "revenue": float(l.get("price_subtotal") or 0),
+            "margin": float(l.get("margin") or 0),
+            "source": "Sales Order",
+        })
+    for l in pos_lines:
+        if not l.get("product_id"):
+            continue
+        rows.append({
+            "product_id": l["product_id"][0],
+            "product_name": l["product_id"][1],
+            "order_id": l["order_id"][0] if l.get("order_id") else None,
+            "qty": float(l.get("qty") or 0),
+            "revenue": float(l.get("price_subtotal") or 0),
+            "margin": float(l.get("margin") or 0),
+            "source": "POS Ticket",
+        })
+    return rows
+
+
 # Partner address lookup — read-only, cached 1 hour. Returns dict id -> info.
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_partner_addresses(partner_ids_tuple):
@@ -1289,6 +1404,17 @@ with st.sidebar:
     if st.button("◌  Refresh now", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+    if st.button("⎙  Save as PDF", use_container_width=True,
+                 help="Open the browser's print dialog — choose 'Save as PDF' "
+                      "to export the current view as a branded report"):
+        # Streamlit components run in an iframe, but we can call parent.print()
+        from streamlit.components.v1 import html as _stcomp_html
+        _stcomp_html(
+            "<script>setTimeout(function(){"
+            "try { window.parent.print(); } catch(e) { window.print(); }"
+            "}, 200);</script>",
+            height=0,
+        )
     st.caption(
         f"<span style='color:#71717A;font-size:11px'>"
         f"Auto-refresh every {REFRESH_SECONDS}s · live + cached history"
@@ -1878,12 +2004,12 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-(tab_brief, tab_exec, tab_pace, tab_profit, tab_loss, tab_alerts, tab_trends,
- tab_channels, tab_customers, tab_cohorts, tab_team, tab_geo, tab_compare,
- tab_recent) = st.tabs(
+(tab_brief, tab_exec, tab_pace, tab_profit, tab_sku, tab_loss, tab_alerts,
+ tab_trends, tab_channels, tab_customers, tab_cohorts, tab_team, tab_geo,
+ tab_compare, tab_recent) = st.tabs(
     ["  ◆  Brief  ", "  ❖  Executive Summary  ", "  ▲  Pacing  ",
-     "  ◯  Profitability  ", "  ※  Loss Orders  ", "  ⚑  Alerts  ",
-     "  ⌁  Trends  ", "  ⌬  Channels  ", "  ◐  Customers  ",
+     "  ◯  Profitability  ", "  ❒  Products  ", "  ※  Loss Orders  ",
+     "  ⚑  Alerts  ", "  ⌁  Trends  ", "  ⌬  Channels  ", "  ◐  Customers  ",
      "  ⟳  Cohorts  ", "  ★  Salespeople  ", "  ◉  Geography  ",
      "  ⇋  Compare  ", "  ●  Live  "]
 )
@@ -2795,6 +2921,272 @@ with tab_profit:
                     "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
                 },
             )
+
+
+# -------- Products / SKUs --------
+with tab_sku:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Products &amp; SKUs</h3>"
+        f"<div class='sec-sub'>{scope_label} · what's actually selling, "
+        "from real Odoo order lines (sale.order.line + pos.order.line)</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    if df_curr.empty:
+        st.info("No data in selected window.")
+    else:
+        # Fetch lines for the active scope window
+        sku_start_utc, sku_end_utc = _date_window_utc(curr_start, curr_end, TZ)
+        with st.spinner("Loading product detail..."):
+            sku_rows = fetch_order_lines_window(
+                sku_start_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                sku_end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                hist_bucket,
+            )
+
+        if not sku_rows:
+            st.info("No order lines available for this window.")
+        else:
+            sku_df = pd.DataFrame(sku_rows)
+
+            # ---- KPI strip ----
+            unique_skus = sku_df["product_id"].nunique()
+            total_units = float(sku_df["qty"].sum())
+            total_rev = float(sku_df["revenue"].sum())
+            total_margin = float(sku_df["margin"].sum())
+            avg_margin_pct = (total_margin / total_rev * 100) if total_rev else 0
+            top_sku_row = (sku_df.groupby(["product_id", "product_name"])
+                           .agg(rev=("revenue", "sum"))
+                           .reset_index().sort_values("rev", ascending=False))
+            top_sku_name = top_sku_row.iloc[0]["product_name"] if not top_sku_row.empty else "—"
+            top_sku_rev = top_sku_row.iloc[0]["rev"] if not top_sku_row.empty else 0
+
+            kpi_html = "<div class='kpi-grid'>"
+            kpi_html += kpi_card(
+                "Unique SKUs sold",
+                f"{unique_skus:,}",
+                f"<span style='color:#71717A'>across {len(sku_df):,} order lines</span>",
+                "",
+            )
+            kpi_html += kpi_card(
+                "Total units",
+                f"{total_units:,.0f}",
+                f"<span style='color:#71717A'>summed across all SKUs</span>",
+                "",
+            )
+            kpi_html += kpi_card(
+                "Lines revenue",
+                fmt_money(total_rev, CURRENCY, compact=True),
+                f"<span style='color:#71717A'>at {avg_margin_pct:.1f}% gross margin</span>",
+                f"Profit: {fmt_money(total_margin, CURRENCY, compact=True)}",
+            )
+            short_top = (top_sku_name[:38] + "…") if len(top_sku_name) > 40 else top_sku_name
+            kpi_html += kpi_card(
+                "Best-selling SKU",
+                f"<span style='color:#19E3B6;font-size:18px'>{short_top}</span>",
+                f"<b>{fmt_money(top_sku_rev, CURRENCY, compact=True)}</b>"
+                f" <span style='color:#71717A'>· "
+                f"{(top_sku_rev/total_rev*100 if total_rev else 0):.1f}% of revenue</span>",
+                "",
+            )
+            kpi_html += "</div>"
+            st.markdown(kpi_html, unsafe_allow_html=True)
+
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+            # ---- Top SKUs by revenue ----
+            agg = (sku_df.groupby(["product_id", "product_name"])
+                   .agg(units=("qty", "sum"),
+                        revenue=("revenue", "sum"),
+                        margin=("margin", "sum"),
+                        lines=("revenue", "count"))
+                   .reset_index())
+            agg["margin_pct"] = agg.apply(
+                lambda r: r["margin"] / r["revenue"] * 100 if r["revenue"] else 0,
+                axis=1,
+            )
+            agg["share_rev"] = agg["revenue"] / total_rev * 100 if total_rev else 0
+
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                st.markdown("<div class='sec'><h3>Top 15 SKUs by revenue</h3></div>",
+                            unsafe_allow_html=True)
+                top15 = agg.sort_values("revenue", ascending=False).head(15)
+                # Trim long names
+                top15_disp = top15.copy()
+                top15_disp["short_name"] = top15_disp["product_name"].apply(
+                    lambda s: (s[:50] + "…") if len(s) > 52 else s
+                )
+                fig = go.Figure(go.Bar(
+                    y=top15_disp["short_name"][::-1],
+                    x=top15_disp["revenue"][::-1],
+                    orientation="h",
+                    marker=dict(
+                        color=top15_disp["revenue"][::-1],
+                        colorscale=[[0, "#0E5A4A"], [1, "#19E3B6"]],
+                        line=dict(width=0),
+                    ),
+                    text=top15_disp["revenue"][::-1],
+                    texttemplate="%{text:,.0f}",
+                    textposition="outside",
+                    textfont=dict(color=PALETTE["text_dim"], size=10),
+                    cliponaxis=False,
+                    customdata=top15_disp["margin_pct"][::-1],
+                    hovertemplate="<b>%{y}</b><br>"
+                                  "Revenue: %{x:,.0f} " + CURRENCY + "<br>"
+                                  "Margin: %{customdata:.1f}%<extra></extra>",
+                ))
+                st.plotly_chart(style_fig(fig, height=520, show_legend=False),
+                                use_container_width=True)
+            with c2:
+                st.markdown("<div class='sec'><h3>Revenue concentration</h3>"
+                            "<div class='sec-sub'>Top X SKUs as % of revenue</div></div>",
+                            unsafe_allow_html=True)
+                # Build concentration buckets
+                rev_sorted = agg.sort_values("revenue", ascending=False)["revenue"].reset_index(drop=True)
+                buckets = []
+                for n, label in [(5, "Top 5"), (10, "Top 6–10"),
+                                  (25, "Top 11–25"), (50, "Top 26–50")]:
+                    if n == 5:
+                        b = rev_sorted.head(5).sum()
+                    else:
+                        prior = {10: 5, 25: 10, 50: 25}[n]
+                        b = rev_sorted.iloc[prior:n].sum() if len(rev_sorted) > prior else 0
+                    buckets.append((label, b))
+                rest = rev_sorted.iloc[50:].sum() if len(rev_sorted) > 50 else 0
+                buckets.append(("Rest", rest))
+                fig = go.Figure(go.Pie(
+                    labels=[b[0] for b in buckets],
+                    values=[b[1] for b in buckets],
+                    hole=0.65,
+                    marker=dict(colors=["#19E3B6", "#38BDF8", "#A78BFA",
+                                        "#F5B544", "#52525B"],
+                                line=dict(color=PALETTE["surface"], width=3)),
+                    texttemplate="%{value:,.0f}<br>%{percent}",
+                    textfont=dict(size=11, color=PALETTE["text"]),
+                    hovertemplate="<b>%{label}</b><br>%{value:,.0f} " + CURRENCY +
+                                  "<br>%{percent}<extra></extra>",
+                ))
+                fig.update_layout(annotations=[dict(
+                    text=f"<b>{unique_skus}</b>"
+                         f"<br><span style='font-size:10px;color:#A1A1AA'>SKUs</span>",
+                    showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
+                st.plotly_chart(style_fig(fig, height=520),
+                                use_container_width=True)
+
+            # ---- Revenue vs margin scatter (find your stars and dogs) ----
+            st.markdown("<div class='sec' style='margin-top:14px'>"
+                        "<h3>Revenue vs margin</h3>"
+                        "<div class='sec-sub'>Top-right = high volume + high margin (stars). "
+                        "Bottom-right = high volume but thin margin (re-pricing candidates).</div>"
+                        "</div>",
+                        unsafe_allow_html=True)
+            scatter_df = agg[agg["revenue"] > 0].copy()
+            # Limit to top 50 by revenue to keep readable
+            scatter_df = scatter_df.sort_values("revenue", ascending=False).head(50)
+            fig = go.Figure(go.Scatter(
+                x=scatter_df["revenue"],
+                y=scatter_df["margin_pct"],
+                mode="markers",
+                marker=dict(
+                    size=(scatter_df["units"] / scatter_df["units"].max() * 30 + 6
+                          if scatter_df["units"].max() > 0 else 10),
+                    color=scatter_df["margin_pct"],
+                    colorscale=[[0, "#F87171"], [0.5, "#F5B544"], [1, "#19E3B6"]],
+                    showscale=True,
+                    colorbar=dict(title="Margin %", thickness=8,
+                                  tickfont=dict(color="#A1A1AA", size=9)),
+                    line=dict(width=0.5, color="#23232B"),
+                    opacity=0.85,
+                ),
+                text=scatter_df["product_name"],
+                hovertemplate="<b>%{text}</b><br>"
+                              "Revenue: %{x:,.0f} " + CURRENCY + "<br>"
+                              "Margin: %{y:.1f}%<br>"
+                              "Units: %{customdata:,.0f}<extra></extra>",
+                customdata=scatter_df["units"],
+            ))
+            fig.update_xaxes(title=f"Revenue ({CURRENCY})")
+            fig.update_yaxes(title="Margin %")
+            st.plotly_chart(style_fig(fig, height=440, show_legend=False),
+                            use_container_width=True)
+
+            # ---- Detailed table ----
+            st.markdown("<div class='sec' style='margin-top:14px'>"
+                        "<h3>All products — detailed</h3>"
+                        f"<div class='sec-sub'>{unique_skus:,} SKUs · sortable, exportable</div>"
+                        "</div>",
+                        unsafe_allow_html=True)
+            tbl = agg.sort_values("revenue", ascending=False).copy()
+            tbl = tbl[["product_name", "units", "lines", "revenue",
+                       "margin", "margin_pct", "share_rev"]]
+            tbl.columns = ["Product", "Units", "Order lines",
+                           f"Revenue ({CURRENCY})", f"Profit ({CURRENCY})",
+                           "Margin %", "% of revenue"]
+            st.dataframe(
+                tbl, use_container_width=True, hide_index=True, height=520,
+                column_config={
+                    "Units": st.column_config.NumberColumn(format="%,.0f"),
+                    "Order lines": st.column_config.NumberColumn(format="%,d"),
+                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+                    "% of revenue": st.column_config.NumberColumn(format="%.1f%%"),
+                },
+            )
+
+            # CSV export
+            csv_bytes = tbl.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="◌  Download SKUs as CSV",
+                data=csv_bytes,
+                file_name=f"fyxx-skus-{curr_start}-to-{curr_end}.csv",
+                mime="text/csv",
+                use_container_width=False,
+            )
+
+            # ---- Basket analysis (top SKU pairs in the same order) ----
+            st.markdown("<div class='sec' style='margin-top:14px'>"
+                        "<h3>Often bought together</h3>"
+                        "<div class='sec-sub'>SKU pairs that appeared in the same order most often</div>"
+                        "</div>",
+                        unsafe_allow_html=True)
+            try:
+                from collections import Counter
+                pair_counter = Counter()
+                # Group product_ids by order_id, then count pairs
+                grp = sku_df.groupby("order_id")["product_id"].apply(
+                    lambda s: list(set(s.dropna().astype(int).tolist()))
+                )
+                # Limit basket combinatorics to orders with <= 12 distinct products
+                for prods in grp:
+                    if 2 <= len(prods) <= 12:
+                        prods = sorted(prods)
+                        for i in range(len(prods)):
+                            for j in range(i + 1, len(prods)):
+                                pair_counter[(prods[i], prods[j])] += 1
+                if pair_counter:
+                    name_lookup = dict(zip(sku_df["product_id"], sku_df["product_name"]))
+                    top_pairs = pair_counter.most_common(15)
+                    pair_rows = []
+                    for (a, b), n in top_pairs:
+                        pair_rows.append({
+                            "Pair": f"{name_lookup.get(a, '?')[:35]}  ↔  {name_lookup.get(b, '?')[:35]}",
+                            "Times bought together": n,
+                        })
+                    pair_df = pd.DataFrame(pair_rows)
+                    st.dataframe(
+                        pair_df, use_container_width=True, hide_index=True,
+                        column_config={
+                            "Times bought together":
+                                st.column_config.NumberColumn(format="%,d"),
+                        },
+                    )
+                else:
+                    st.caption("Not enough multi-line orders in this window for basket analysis.")
+            except Exception as exc:
+                st.caption(f"Basket analysis skipped: {exc}")
 
 
 # -------- Loss Orders --------
