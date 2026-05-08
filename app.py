@@ -209,12 +209,131 @@ button[kind="pills"][aria-pressed="true"],
     border-bottom: 2px solid #19E3B6 !important;
 }
 
-/* DataFrames */
+/* DataFrames — refined wrapper styling */
 [data-testid="stDataFrame"] {
-    border-radius: 12px;
+    border-radius: 14px;
     border: 1px solid #23232B;
     overflow: hidden;
-    background: #111114;
+    background: linear-gradient(160deg, #131318 0%, #0E0E13 100%);
+    box-shadow: 0 4px 16px -8px rgba(0, 0, 0, 0.35);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+[data-testid="stDataFrame"]:hover {
+    border-color: #2D2D38;
+    box-shadow: 0 6px 22px -8px rgba(0, 0, 0, 0.40);
+}
+/* Soft heading above tables (when added via .dt-head) */
+.dt-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 0 4px 8px 4px;
+    font-size: 11px; color: #71717A;
+    letter-spacing: 0.10em; text-transform: uppercase; font-weight: 600;
+}
+.dt-head b { color: #E4E4E7; font-weight: 700; }
+.dt-head .count {
+    color: #52525B;
+    font-variant-numeric: tabular-nums;
+    font-size: 10.5px;
+}
+
+/* ===== Leaderboard component (custom HTML for top-N tables) ===== */
+.lb-card {
+    background: linear-gradient(160deg, #131318 0%, #0E0E13 100%);
+    border: 1px solid #23232B;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px -8px rgba(0,0,0,0.35);
+}
+.lb-row {
+    display: grid;
+    grid-template-columns: 30px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 11px 16px;
+    border-bottom: 1px solid #1A1A20;
+    transition: background 0.15s ease;
+}
+.lb-row:last-child { border-bottom: none; }
+.lb-row:hover { background: rgba(25, 227, 182, 0.04); }
+.lb-rank {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11.5px; font-weight: 700;
+    background: rgba(255,255,255,0.03);
+    color: #71717A;
+    border: 1px solid #23232B;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+.lb-rank.lb-gold {
+    background: linear-gradient(135deg, rgba(245,181,68,0.20), rgba(245,181,68,0.06));
+    color: #FCD34D;
+    border-color: rgba(245, 181, 68, 0.40);
+    box-shadow: 0 0 0 1px rgba(245,181,68,0.10) inset;
+}
+.lb-rank.lb-silver {
+    background: linear-gradient(135deg, rgba(229,231,235,0.14), rgba(229,231,235,0.04));
+    color: #E5E7EB;
+    border-color: rgba(209, 213, 219, 0.30);
+}
+.lb-rank.lb-bronze {
+    background: linear-gradient(135deg, rgba(180,83,9,0.18), rgba(180,83,9,0.04));
+    color: #FBA77A;
+    border-color: rgba(180, 83, 9, 0.35);
+}
+.lb-body { min-width: 0; flex: 1; }
+.lb-name {
+    color: #F4F4F5;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lb-name .lb-sub {
+    color: #71717A;
+    font-size: 11px;
+    font-weight: 400;
+    margin-left: 6px;
+}
+.lb-bar {
+    height: 4px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+.lb-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #19E3B6 0%, #38BDF8 100%);
+    box-shadow: 0 0 8px rgba(25, 227, 182, 0.30);
+    transition: width 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.lb-value {
+    color: #F4F4F5;
+    font-size: 13.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    text-align: right;
+    flex-shrink: 0;
+}
+.lb-value .lb-delta {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+.lb-value .lb-delta.up { color: #22C55E; }
+.lb-value .lb-delta.dn { color: #F87171; }
+.lb-empty {
+    padding: 24px;
+    text-align: center;
+    color: #71717A;
+    font-size: 12.5px;
 }
 
 /* Dividers */
@@ -2034,6 +2153,59 @@ def sparkline_svg(values, width=200, height=30, color="#19E3B6"):
     )
 
 
+def render_leaderboard(rows, max_rows=10, color="#19E3B6"):
+    """Render an elegant leaderboard from a list of dicts.
+
+    Each row dict:
+      name      — primary text
+      sub       — small secondary text (optional)
+      value     — numeric (used to size the bar and sort)
+      value_str — formatted display value (e.g. "84.5K JOD")
+      delta_pct — optional float; renders + or - delta chip
+    """
+    if not rows:
+        return "<div class='lb-card'><div class='lb-empty'>No data</div></div>"
+
+    rows = sorted(rows, key=lambda r: r.get("value", 0), reverse=True)[:max_rows]
+    max_val = max((r.get("value", 0) for r in rows), default=1) or 1
+
+    rank_class = ["lb-gold", "lb-silver", "lb-bronze"]
+    parts = ["<div class='lb-card'>"]
+    for i, r in enumerate(rows):
+        rank = i + 1
+        cls = rank_class[i] if i < 3 else ""
+        name = r.get("name") or "—"
+        sub = r.get("sub")
+        value = r.get("value") or 0
+        value_str = r.get("value_str") or f"{value:,.0f}"
+        bar_pct = (value / max_val * 100) if max_val else 0
+
+        sub_html = f"<span class='lb-sub'>{sub}</span>" if sub else ""
+
+        delta_html = ""
+        d = r.get("delta_pct")
+        if d is not None:
+            sign = "▲" if d >= 0 else "▼"
+            d_cls = "up" if d >= 0 else "dn"
+            delta_html = f"<span class='lb-delta {d_cls}'>{sign} {abs(d):.1f}%</span>"
+
+        parts.append(
+            f"<div class='lb-row'>"
+            f"<span class='lb-rank {cls}'>{rank}</span>"
+            f"<div class='lb-body'>"
+            f"<div class='lb-name'>{name}{sub_html}</div>"
+            f"<div class='lb-bar'>"
+            f"<div class='lb-bar-fill' style='width:{bar_pct:.1f}%;"
+            f"background:linear-gradient(90deg, {color} 0%, #38BDF8 100%);"
+            f"box-shadow:0 0 8px rgba(25,227,182,0.30)'></div>"
+            f"</div></div>"
+            f"<span class='lb-value'>{value_str}{delta_html}</span>"
+            f"</div>"
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
 def kpi_card(label, value, sub_html="", foot="", spark=None, spark_color="#19E3B6"):
     foot_html = f"<div class='kpi-foot'>{foot}</div>" if foot else ""
     spark_html = ""
@@ -2379,36 +2551,53 @@ with tab_brief:
         f"<div class='brief-card'>{brief_html}</div>",
         unsafe_allow_html=True,
     )
-    # Quick top-3 table strip
+    # Top-5 leaderboards — elegant custom HTML with rank, bar, value
     if not df_curr.empty:
         b1, b2, b3 = st.columns(3)
+
+        def _to_lb_rows(series_curr, series_prev=None):
+            rows = []
+            for name, val in series_curr.items():
+                row = {
+                    "name": name,
+                    "value": float(val),
+                    "value_str": fmt_money(val, CURRENCY, compact=True),
+                }
+                if series_prev is not None and name in series_prev.index:
+                    p = float(series_prev[name])
+                    if p:
+                        row["delta_pct"] = (float(val) - p) / p * 100
+                rows.append(row)
+            return rows
+
+        ch_curr_s = (df_curr.groupby("channel")["amount_total"].sum()
+                     .sort_values(ascending=False).head(5))
+        ch_prev_s = (df_prev.groupby("channel")["amount_total"].sum()
+                     if not df_prev.empty else pd.Series(dtype=float))
+        cu_curr_s = (df_curr.groupby("customer")["amount_total"].sum()
+                     .sort_values(ascending=False).head(5))
+        cu_prev_s = (df_prev.groupby("customer")["amount_total"].sum()
+                     if not df_prev.empty else pd.Series(dtype=float))
+        sp_curr_s = (df_curr.groupby("salesperson")["amount_total"].sum()
+                     .sort_values(ascending=False).head(5))
+        sp_prev_s = (df_prev.groupby("salesperson")["amount_total"].sum()
+                     if not df_prev.empty else pd.Series(dtype=float))
+
         with b1:
             st.markdown("<div class='sec'><h3>Top channels</h3></div>",
                         unsafe_allow_html=True)
-            ch_top = (df_curr.groupby("channel")["amount_total"].sum()
-                      .sort_values(ascending=False).head(5).reset_index())
-            ch_top.columns = ["Channel", f"Revenue ({CURRENCY})"]
-            st.dataframe(ch_top, use_container_width=True, hide_index=True,
-                         column_config={f"Revenue ({CURRENCY})":
-                                        st.column_config.NumberColumn(format="%,.0f")})
+            st.markdown(render_leaderboard(_to_lb_rows(ch_curr_s, ch_prev_s)),
+                        unsafe_allow_html=True)
         with b2:
             st.markdown("<div class='sec'><h3>Top customers</h3></div>",
                         unsafe_allow_html=True)
-            cu_top = (df_curr.groupby("customer")["amount_total"].sum()
-                      .sort_values(ascending=False).head(5).reset_index())
-            cu_top.columns = ["Customer", f"Revenue ({CURRENCY})"]
-            st.dataframe(cu_top, use_container_width=True, hide_index=True,
-                         column_config={f"Revenue ({CURRENCY})":
-                                        st.column_config.NumberColumn(format="%,.0f")})
+            st.markdown(render_leaderboard(_to_lb_rows(cu_curr_s, cu_prev_s)),
+                        unsafe_allow_html=True)
         with b3:
             st.markdown("<div class='sec'><h3>Top salespeople</h3></div>",
                         unsafe_allow_html=True)
-            sp_top = (df_curr.groupby("salesperson")["amount_total"].sum()
-                      .sort_values(ascending=False).head(5).reset_index())
-            sp_top.columns = ["Salesperson", f"Revenue ({CURRENCY})"]
-            st.dataframe(sp_top, use_container_width=True, hide_index=True,
-                         column_config={f"Revenue ({CURRENCY})":
-                                        st.column_config.NumberColumn(format="%,.0f")})
+            st.markdown(render_leaderboard(_to_lb_rows(sp_curr_s, sp_prev_s)),
+                        unsafe_allow_html=True)
 
 
 # -------- Executive Summary --------
@@ -2969,19 +3158,31 @@ with tab_profit:
         tbl.columns = ["Channel", "Orders", f"Revenue ({CURRENCY})",
                        f"Profit ({CURRENCY})", "Margin %",
                        "% of revenue", "% of profit"]
+        _max_p_rev = tbl[f"Revenue ({CURRENCY})"].max() or 1
+        _max_p_pro = tbl[f"Profit ({CURRENCY})"].max() or 1
         st.dataframe(
             tbl, use_container_width=True, hide_index=True,
             column_config={
-                f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
-                "% of revenue": st.column_config.NumberColumn(format="%.1f%%"),
-                "% of profit": st.column_config.NumberColumn(format="%.1f%%"),
+                f"Revenue ({CURRENCY})": st.column_config.ProgressColumn(
+                    f"Revenue ({CURRENCY})", format="%,.0f",
+                    min_value=0, max_value=float(_max_p_rev)),
+                f"Profit ({CURRENCY})": st.column_config.ProgressColumn(
+                    f"Profit ({CURRENCY})", format="%,.0f",
+                    min_value=0, max_value=float(_max_p_pro)),
+                "Margin %": st.column_config.ProgressColumn(
+                    "Margin %", format="%.1f%%",
+                    min_value=0, max_value=100),
+                "% of revenue": st.column_config.ProgressColumn(
+                    "% of revenue", format="%.1f%%",
+                    min_value=0, max_value=100),
+                "% of profit": st.column_config.ProgressColumn(
+                    "% of profit", format="%.1f%%",
+                    min_value=0, max_value=100),
                 "Orders": st.column_config.NumberColumn(format="%,d"),
             },
         )
 
-        # ---- Top profit drivers (customers & salespeople) ----
+        # ---- Top profit drivers (customers & salespeople) — leaderboard style ----
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("<div class='sec'><h3>Top customers by profit</h3></div>",
@@ -2993,17 +3194,16 @@ with tab_profit:
             top_c["gm_pct"] = top_c.apply(
                 lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
             )
-            top_c = top_c.sort_values("prof", ascending=False).head(15)
-            top_c.columns = ["Customer", f"Revenue ({CURRENCY})",
-                             f"Profit ({CURRENCY})", "Margin %"]
-            st.dataframe(
-                top_c, use_container_width=True, hide_index=True, height=460,
-                column_config={
-                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
-                },
-            )
+            top_c = top_c.sort_values("prof", ascending=False).head(10)
+            _rows_c = []
+            for _, r in top_c.iterrows():
+                _rows_c.append({
+                    "name": r["customer"],
+                    "sub": f"{r['gm_pct']:.1f}% margin",
+                    "value": float(r["prof"]),
+                    "value_str": fmt_money(r["prof"], CURRENCY, compact=True),
+                })
+            st.markdown(render_leaderboard(_rows_c), unsafe_allow_html=True)
         with c2:
             st.markdown("<div class='sec'><h3>Top salespeople by profit</h3></div>",
                         unsafe_allow_html=True)
@@ -3014,17 +3214,16 @@ with tab_profit:
             top_s["gm_pct"] = top_s.apply(
                 lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
             )
-            top_s = top_s.sort_values("prof", ascending=False).head(15)
-            top_s.columns = ["Salesperson", f"Revenue ({CURRENCY})",
-                             f"Profit ({CURRENCY})", "Margin %"]
-            st.dataframe(
-                top_s, use_container_width=True, hide_index=True, height=460,
-                column_config={
-                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
-                },
-            )
+            top_s = top_s.sort_values("prof", ascending=False).head(10)
+            _rows_s = []
+            for _, r in top_s.iterrows():
+                _rows_s.append({
+                    "name": r["salesperson"],
+                    "sub": f"{r['gm_pct']:.1f}% margin",
+                    "value": float(r["prof"]),
+                    "value_str": fmt_money(r["prof"], CURRENCY, compact=True),
+                })
+            st.markdown(render_leaderboard(_rows_s), unsafe_allow_html=True)
 
 
 # -------- Products / SKUs --------
@@ -3228,15 +3427,27 @@ with tab_sku:
             tbl.columns = ["Product", "Units", "Order lines",
                            f"Revenue ({CURRENCY})", f"Profit ({CURRENCY})",
                            "Margin %", "% of revenue"]
+            _max_sku_rev = tbl[f"Revenue ({CURRENCY})"].max() or 1
+            _max_sku_units = tbl["Units"].max() or 1
+            _max_sku_share = tbl["% of revenue"].max() or 1
             st.dataframe(
                 tbl, use_container_width=True, hide_index=True, height=520,
                 column_config={
-                    "Units": st.column_config.NumberColumn(format="%,.0f"),
+                    "Product": st.column_config.TextColumn(width="large"),
+                    "Units": st.column_config.ProgressColumn(
+                        "Units", format="%,.0f",
+                        min_value=0, max_value=float(_max_sku_units)),
                     "Order lines": st.column_config.NumberColumn(format="%,d"),
-                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Revenue ({CURRENCY})": st.column_config.ProgressColumn(
+                        f"Revenue ({CURRENCY})", format="%,.0f",
+                        min_value=0, max_value=float(_max_sku_rev)),
                     f"Profit ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
-                    "% of revenue": st.column_config.NumberColumn(format="%.1f%%"),
+                    "Margin %": st.column_config.ProgressColumn(
+                        "Margin %", format="%.1f%%",
+                        min_value=0, max_value=100),
+                    "% of revenue": st.column_config.ProgressColumn(
+                        "% of revenue", format="%.1f%%",
+                        min_value=0, max_value=float(_max_sku_share * 1.1)),
                 },
             )
 
@@ -3478,11 +3689,14 @@ with tab_loss:
                 cust_loss.columns = ["Customer", "Loss orders",
                                      f"Revenue ({CURRENCY})",
                                      f"Loss ({CURRENCY})"]
+                _max_lc_loss = cust_loss[f"Loss ({CURRENCY})"].max() or 1
                 st.dataframe(
                     cust_loss, use_container_width=True, hide_index=True, height=460,
                     column_config={
                         f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                        f"Loss ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                        f"Loss ({CURRENCY})": st.column_config.ProgressColumn(
+                            f"Loss ({CURRENCY})", format="%,.0f",
+                            min_value=0, max_value=float(_max_lc_loss)),
                         "Loss orders": st.column_config.NumberColumn(format="%,d"),
                     },
                 )
@@ -3500,11 +3714,14 @@ with tab_loss:
                 sp_loss.columns = ["Salesperson", "Loss orders",
                                    f"Revenue ({CURRENCY})",
                                    f"Loss ({CURRENCY})"]
+                _max_ls_loss = sp_loss[f"Loss ({CURRENCY})"].max() or 1
                 st.dataframe(
                     sp_loss, use_container_width=True, hide_index=True, height=460,
                     column_config={
                         f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                        f"Loss ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                        f"Loss ({CURRENCY})": st.column_config.ProgressColumn(
+                            f"Loss ({CURRENCY})", format="%,.0f",
+                            min_value=0, max_value=float(_max_ls_loss)),
                         "Loss orders": st.column_config.NumberColumn(format="%,d"),
                     },
                 )
@@ -3543,13 +3760,16 @@ with tab_loss:
                 "Salesperson", f"Revenue ({CURRENCY})", f"Cost ({CURRENCY})",
                 f"Loss ({CURRENCY})", "Margin %", "State"
             ]
+            _max_loss = detail[f"Loss ({CURRENCY})"].max() or 1
             st.dataframe(
                 detail, use_container_width=True, hide_index=True, height=620,
                 column_config={
                     f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
                     f"Cost ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    f"Loss ({CURRENCY})": st.column_config.NumberColumn(
+                    f"Loss ({CURRENCY})": st.column_config.ProgressColumn(
+                        f"Loss ({CURRENCY})",
                         format="%,.0f",
+                        min_value=0, max_value=float(_max_loss),
                         help="Absolute amount lost (negative margin)"),
                     "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
                 },
@@ -4004,10 +4224,16 @@ with tab_channels:
                    .sort_values("Revenue", ascending=False)
                    .reset_index())
             tbl.columns = ["Channel", f"Revenue ({CURRENCY})", "Orders", f"AOV ({CURRENCY})"]
+            _max_rev = tbl[f"Revenue ({CURRENCY})"].max() or 1
             st.dataframe(
                 tbl, use_container_width=True, hide_index=True,
                 column_config={
-                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                    f"Revenue ({CURRENCY})": st.column_config.ProgressColumn(
+                        f"Revenue ({CURRENCY})",
+                        format="%,.0f",
+                        min_value=0,
+                        max_value=float(_max_rev),
+                    ),
                     f"AOV ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
                     "Orders": st.column_config.NumberColumn(format="%,d"),
                 },
@@ -4025,10 +4251,13 @@ with tab_customers:
             top = (df_curr.groupby("customer")["amount_total"].sum()
                    .sort_values(ascending=False).head(20).reset_index())
             top.columns = ["Customer", f"Revenue ({CURRENCY})"]
+            _max_cu_rev = top[f"Revenue ({CURRENCY})"].max() or 1
             st.dataframe(
                 top, use_container_width=True, hide_index=True, height=520,
                 column_config={f"Revenue ({CURRENCY})":
-                               st.column_config.NumberColumn(format="%,.0f")},
+                               st.column_config.ProgressColumn(
+                                   f"Revenue ({CURRENCY})", format="%,.0f",
+                                   min_value=0, max_value=float(_max_cu_rev))},
             )
     with c2:
         st.markdown("<div class='sec'><h3>Customers by orders</h3></div>",
@@ -4039,11 +4268,17 @@ with tab_customers:
                         Revenue=("amount_total", "sum"))
                    .sort_values("Orders", ascending=False).head(20).reset_index())
             top.columns = ["Customer", "Orders", f"Revenue ({CURRENCY})"]
+            _max_co_orders = top["Orders"].max() or 1
+            _max_co_rev = top[f"Revenue ({CURRENCY})"].max() or 1
             st.dataframe(
                 top, use_container_width=True, hide_index=True, height=520,
                 column_config={
-                    f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                    "Orders": st.column_config.NumberColumn(format="%,d"),
+                    f"Revenue ({CURRENCY})": st.column_config.ProgressColumn(
+                        f"Revenue ({CURRENCY})", format="%,.0f",
+                        min_value=0, max_value=float(_max_co_rev)),
+                    "Orders": st.column_config.ProgressColumn(
+                        "Orders", format="%,d",
+                        min_value=0, max_value=float(_max_co_orders)),
                 },
             )
     with c3:
@@ -4277,13 +4512,22 @@ with tab_team:
               .reset_index())
         sp.columns = ["Salesperson", f"Revenue ({CURRENCY})", "Orders",
                       f"AOV ({CURRENCY})", "Customers"]
+        _max_sp_rev = sp[f"Revenue ({CURRENCY})"].max() or 1
+        _max_sp_orders = sp["Orders"].max() or 1
+        _max_sp_cust = sp["Customers"].max() or 1
         st.dataframe(
             sp, use_container_width=True, hide_index=True, height=520,
             column_config={
-                f"Revenue ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                f"Revenue ({CURRENCY})": st.column_config.ProgressColumn(
+                    f"Revenue ({CURRENCY})", format="%,.0f",
+                    min_value=0, max_value=float(_max_sp_rev)),
                 f"AOV ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                "Orders": st.column_config.NumberColumn(format="%,d"),
-                "Customers": st.column_config.NumberColumn(format="%,d"),
+                "Orders": st.column_config.ProgressColumn(
+                    "Orders", format="%,d",
+                    min_value=0, max_value=float(_max_sp_orders)),
+                "Customers": st.column_config.ProgressColumn(
+                    "Customers", format="%,d",
+                    min_value=0, max_value=float(_max_sp_cust)),
             },
         )
 
@@ -4541,11 +4785,14 @@ with tab_geo:
                             unsafe_allow_html=True)
                 tbl = city_agg[["city_raw", "revenue", "orders", "customers"]].copy()
                 tbl.columns = ["City", f"Revenue ({CURRENCY})", "Orders", "Customers"]
+                _max_city_rev = tbl[f"Revenue ({CURRENCY})"].max() or 1
                 st.dataframe(
                     tbl, use_container_width=True, hide_index=True, height=420,
                     column_config={
                         f"Revenue ({CURRENCY})":
-                            st.column_config.NumberColumn(format="%,.0f"),
+                            st.column_config.ProgressColumn(
+                                f"Revenue ({CURRENCY})", format="%,.0f",
+                                min_value=0, max_value=float(_max_city_rev)),
                         "Orders": st.column_config.NumberColumn(format="%,d"),
                         "Customers": st.column_config.NumberColumn(format="%,d"),
                     },
