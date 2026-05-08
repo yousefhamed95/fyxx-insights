@@ -612,6 +612,92 @@ LIVE_TTL = 30          # today's slice TTL (seconds)
 HISTORY_TTL = 900      # 15 min cache for multi-year backfill
 REFRESH_SECONDS = 60   # in-place auto-refresh
 
+# Hard-coded Jordanian city coordinates (Odoo res.partner has city populated
+# for ~92% of customers but partner_latitude/longitude are 0% populated).
+JORDAN_CITIES = {
+    "amman":        (31.9539, 35.9106),
+    "irbid":        (32.5556, 35.8500),
+    "zarqa":        (32.0728, 36.0876),
+    "az zarqa":     (32.0728, 36.0876),
+    "aqaba":        (29.5267, 35.0078),
+    "al aqaba":     (29.5267, 35.0078),
+    "madaba":       (31.7197, 35.7950),
+    "salt":         (32.0392, 35.7272),
+    "as salt":      (32.0392, 35.7272),
+    "karak":        (31.1853, 35.7050),
+    "al karak":     (31.1853, 35.7050),
+    "mafraq":       (32.3500, 36.2080),
+    "al mafraq":    (32.3500, 36.2080),
+    "jerash":       (32.2811, 35.8997),
+    "ajloun":       (32.3328, 35.7517),
+    "ajlun":        (32.3328, 35.7517),
+    "tafila":       (30.8369, 35.6044),
+    "tafilah":      (30.8369, 35.6044),
+    "at tafilah":   (30.8369, 35.6044),
+    "maan":         (30.1962, 35.7239),
+    "maan ":        (30.1962, 35.7239),
+    "ma an":        (30.1962, 35.7239),
+    "ramtha":       (32.5611, 36.0083),
+    "fuheis":       (32.0050, 35.7758),
+    "wadi musa":    (30.3214, 35.4794),
+    "petra":        (30.3214, 35.4794),
+    "sahab":        (31.8703, 36.0103),
+    "naour":        (31.8786, 35.8275),
+    "russeifa":     (32.0175, 36.0464),
+    "ruseifa":      (32.0175, 36.0464),
+    "rusayfa":      (32.0175, 36.0464),
+    "abu nuseir":   (32.0589, 35.9536),
+    "deir alla":    (32.2056, 35.6244),
+    "shouneh":      (32.6133, 35.6058),
+    "north shouneh":(32.6133, 35.6058),
+    "south shouneh":(31.9181, 35.6125),
+    "azraq":        (31.8333, 36.8167),
+    "safi":         (31.0269, 35.4744),
+    # Regional / international fallback cities
+    "riyadh":       (24.7136, 46.6753),
+    "dubai":        (25.2048, 55.2708),
+    "abu dhabi":    (24.4539, 54.3773),
+    "doha":         (25.2854, 51.5310),
+    "kuwait":       (29.3759, 47.9774),
+    "manama":       (26.2235, 50.5876),
+    "muscat":       (23.5859, 58.4059),
+    "beirut":       (33.8938, 35.5018),
+    "damascus":     (33.5138, 36.2765),
+    "cairo":        (30.0444, 31.2357),
+    "jeddah":       (21.4858, 39.1925),
+    "baghdad":      (33.3152, 44.3661),
+    "ramallah":     (31.9038, 35.2034),
+    "jerusalem":    (31.7683, 35.2137),
+}
+
+
+def _normalise_city(name):
+    """Lower, trim, strip Arabic 'al-' prefix variants for fuzzy matching."""
+    if not name:
+        return None
+    n = str(name).strip().lower()
+    for prefix in ("al-", "al ", "el-", "el ", "ash-", "as-", "ash ", "as "):
+        if n.startswith(prefix):
+            n = n[len(prefix):]
+    n = n.replace("'", "").replace("-", " ").replace("_", " ")
+    n = " ".join(n.split())
+    return n
+
+
+def city_to_coords(city):
+    """Return (lat, lon) for a city name, or None if unknown."""
+    if not city:
+        return None
+    norm = _normalise_city(city)
+    if norm in JORDAN_CITIES:
+        return JORDAN_CITIES[norm]
+    # Partial-match fallback (e.g. 'amman, jordan' contains 'amman')
+    for key, coords in JORDAN_CITIES.items():
+        if key and (key in norm or norm in key):
+            return coords
+    return None
+
+
 # Same NET-of-VAT logic as the operational dashboard
 VIRTUAL_CHANNELS_BY_CUSTOMER = {"Green Room": ["green room"]}
 POS_CONFIG_CHANNEL_MAP = {
@@ -803,12 +889,14 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
     rows = []
     for o in sos:
         team_name = o["team_id"][1] if o.get("team_id") else None
+        partner_id = o["partner_id"][0] if o.get("partner_id") else None
         customer = o["partner_id"][1] if o.get("partner_id") else "—"
         salesperson = o["user_id"][1] if o.get("user_id") else "—"
         rows.append({
             "name": o["name"],
             "channel": resolve_channel_so(team_name, customer),
             "customer": customer,
+            "partner_id": partner_id,
             "salesperson": salesperson,
             "amount_total": o.get("amount_untaxed", 0.0),
             "date_order": o["date_order"],
@@ -820,6 +908,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
         channel = POS_CONFIG_CHANNEL_MAP.get(
             cid, o["config_id"][1] if o.get("config_id") else "POS"
         )
+        partner_id = o["partner_id"][0] if o.get("partner_id") else None
         customer = o["partner_id"][1] if o.get("partner_id") else "Walk-in"
         salesperson = o["user_id"][1] if o.get("user_id") else "—"
         net = (o.get("amount_total") or 0) - (o.get("amount_tax") or 0)
@@ -827,6 +916,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "name": o["name"],
             "channel": channel,
             "customer": customer,
+            "partner_id": partner_id,
             "salesperson": salesperson,
             "amount_total": net,
             "date_order": o["date_order"],
@@ -845,7 +935,7 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     )
     if not rows:
         return pd.DataFrame(columns=[
-            "name", "channel", "customer", "salesperson",
+            "name", "channel", "customer", "partner_id", "salesperson",
             "amount_total", "date_order", "state", "source",
             "dt_local", "year", "month", "day",
         ])
@@ -855,6 +945,33 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     df["month"] = df["dt_local"].dt.month
     df["day"] = df["dt_local"].dt.date
     return df
+
+
+# Partner address lookup — read-only, cached 1 hour. Returns dict id -> info.
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_partner_addresses(partner_ids_tuple):
+    """Read city/country/state for each partner ID (read-only)."""
+    if not partner_ids_tuple:
+        return {}
+    ids = [int(i) for i in partner_ids_tuple if i]
+    if not ids:
+        return {}
+    try:
+        rows = kw("res.partner", "read", [ids],
+                  {"fields": ["id", "name", "city", "country_id", "state_id",
+                              "partner_latitude", "partner_longitude"]})
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        out[r["id"]] = {
+            "city": r.get("city") or None,
+            "country": r["country_id"][1] if r.get("country_id") else None,
+            "state": r["state_id"][1] if r.get("state_id") else None,
+            "lat": r.get("partner_latitude") or None,
+            "lon": r.get("partner_longitude") or None,
+        }
+    return out
 
 
 # =============================================================================
@@ -1446,9 +1563,9 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # TABS
 # =============================================================================
 (tab_brief, tab_exec, tab_trends, tab_channels,
- tab_customers, tab_team, tab_recent) = st.tabs(
+ tab_customers, tab_team, tab_geo, tab_recent) = st.tabs(
     ["  Brief  ", "  Executive Summary  ", "  Trends  ", "  Channels  ",
-     "  Customers  ", "  Salespeople  ", "  Live Activity  "]
+     "  Customers  ", "  Salespeople  ", "  Geography  ", "  Live Activity  "]
 )
 
 
@@ -2108,6 +2225,214 @@ with tab_team:
         ))
         st.plotly_chart(style_fig(fig, height=380, show_legend=False),
                         use_container_width=True)
+
+
+# -------- Geography --------
+with tab_geo:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Customer geography</h3>"
+        f"<div class='sec-sub'>{scope_label} · "
+        "city-level mapping (Odoo addresses → known coordinates)</div></div>",
+        unsafe_allow_html=True,
+    )
+    if df_curr.empty:
+        st.info("No data in selected window.")
+    else:
+        # Pull partner addresses for everyone in the current slice
+        unique_partners = tuple(sorted(set(
+            int(p) for p in df_curr["partner_id"].dropna().tolist()
+        )))
+        with st.spinner("Resolving customer addresses..."):
+            addr_map = fetch_partner_addresses(unique_partners)
+
+        # Build per-order frame with city/coords
+        geo_df = df_curr.copy()
+        geo_df["city_raw"] = geo_df["partner_id"].map(
+            lambda pid: addr_map.get(int(pid), {}).get("city") if pid else None
+        )
+        geo_df["country"] = geo_df["partner_id"].map(
+            lambda pid: addr_map.get(int(pid), {}).get("country") if pid else None
+        )
+        geo_df["coords"] = geo_df["city_raw"].map(city_to_coords)
+        # Prefer real Odoo coords if ever populated
+        geo_df["lat_partner"] = geo_df["partner_id"].map(
+            lambda pid: addr_map.get(int(pid), {}).get("lat") if pid else None
+        )
+        geo_df["lon_partner"] = geo_df["partner_id"].map(
+            lambda pid: addr_map.get(int(pid), {}).get("lon") if pid else None
+        )
+        # If partner_lat / lon are populated, use them; else fall back to city
+        def _resolved_coords(row):
+            if row["lat_partner"] and row["lon_partner"]:
+                return (row["lat_partner"], row["lon_partner"])
+            return row["coords"]
+        geo_df["resolved"] = geo_df.apply(_resolved_coords, axis=1)
+        geo_df["lat"] = geo_df["resolved"].map(lambda c: c[0] if c else None)
+        geo_df["lon"] = geo_df["resolved"].map(lambda c: c[1] if c else None)
+
+        mappable = geo_df[geo_df["lat"].notna() & geo_df["lon"].notna()].copy()
+        unmapped_rows = geo_df[geo_df["lat"].isna()]
+        unmapped_rev = float(unmapped_rows["amount_total"].sum())
+        unmapped_orders = len(unmapped_rows)
+
+        # Coverage stats
+        total_rev = float(geo_df["amount_total"].sum())
+        mapped_rev = float(mappable["amount_total"].sum()) if not mappable.empty else 0
+        cov_pct = (mapped_rev / total_rev * 100) if total_rev else 0
+
+        cv1, cv2, cv3, cv4 = st.columns(4)
+        cv1.markdown(kpi_card(
+            "Mapped revenue",
+            fmt_money(mapped_rev, CURRENCY, compact=True),
+            f"<span style='color:#19E3B6'>{cov_pct:.1f}%</span> of period revenue",
+        ), unsafe_allow_html=True)
+        cv2.markdown(kpi_card(
+            "Mapped orders",
+            f"{len(mappable):,}",
+            f"<span style='color:#71717A'>of {len(geo_df):,} total</span>",
+        ), unsafe_allow_html=True)
+        cv3.markdown(kpi_card(
+            "Unmapped revenue",
+            fmt_money(unmapped_rev, CURRENCY, compact=True),
+            f"<span style='color:#71717A'>{unmapped_orders:,} orders without city</span>",
+        ), unsafe_allow_html=True)
+        cv4.markdown(kpi_card(
+            "Cities reached",
+            f"{mappable.groupby(['lat','lon']).ngroups if not mappable.empty else 0}",
+            "<span style='color:#71717A'>distinct locations</span>",
+        ), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        if mappable.empty:
+            st.warning(
+                "No customer in this period has a recognised city. "
+                "Either the city field is empty in Odoo, or the city name "
+                "isn't in our coordinate table yet."
+            )
+        else:
+            # Aggregate by (lat, lon, city_raw)
+            city_agg = (mappable.groupby(["lat", "lon", "city_raw"])
+                        .agg(revenue=("amount_total", "sum"),
+                             orders=("amount_total", "count"),
+                             customers=("customer", pd.Series.nunique))
+                        .reset_index()
+                        .sort_values("revenue", ascending=False))
+
+            # Bubble size — square-root scaling so small cities are still visible
+            max_rev = city_agg["revenue"].max() or 1
+            city_agg["bubble"] = (city_agg["revenue"] / max_rev) ** 0.5 * 60 + 8
+
+            # Map figure
+            fig = go.Figure(go.Scattergeo(
+                lon=city_agg["lon"],
+                lat=city_agg["lat"],
+                text=[f"<b>{c}</b><br>"
+                      f"Revenue: {fmt_money(r, CURRENCY, compact=True)}<br>"
+                      f"Orders: {o:,}<br>"
+                      f"Customers: {cu:,}"
+                      for c, r, o, cu in zip(
+                          city_agg["city_raw"], city_agg["revenue"],
+                          city_agg["orders"], city_agg["customers"])],
+                mode="markers",
+                marker=dict(
+                    size=city_agg["bubble"],
+                    color=city_agg["revenue"],
+                    colorscale=[[0, "#0E5A4A"], [0.5, "#19E3B6"], [1, "#5EFFC9"]],
+                    line=dict(width=1.2, color="#19E3B6"),
+                    opacity=0.85,
+                    sizemode="diameter",
+                ),
+                hovertemplate="%{text}<extra></extra>",
+            ))
+            # Auto-fit the map: tight on Jordan if everything is local, wider
+            # if there are international customers in the slice
+            lat_lo = float(city_agg["lat"].min()) - 0.5
+            lat_hi = float(city_agg["lat"].max()) + 0.5
+            lon_lo = float(city_agg["lon"].min()) - 0.5
+            lon_hi = float(city_agg["lon"].max()) + 0.5
+            # Default to Jordan-tight if span is small
+            if (lat_hi - lat_lo) < 6 and (lon_hi - lon_lo) < 6:
+                lat_lo, lat_hi = 28.5, 33.7
+                lon_lo, lon_hi = 34.5, 39.5
+
+            fig.update_layout(
+                geo=dict(
+                    showland=True, landcolor="#15151B",
+                    showocean=True, oceancolor="#08080A",
+                    showcountries=True, countrycolor="#2A2A36",
+                    countrywidth=0.6,
+                    showlakes=True, lakecolor="#08080A",
+                    showcoastlines=True, coastlinecolor="#2A2A36",
+                    bgcolor="rgba(0,0,0,0)",
+                    projection_type="mercator",
+                    lataxis=dict(range=[lat_lo, lat_hi]),
+                    lonaxis=dict(range=[lon_lo, lon_hi]),
+                ),
+                paper_bgcolor=PALETTE["surface"],
+                plot_bgcolor=PALETTE["surface"],
+                margin=dict(l=0, r=0, t=0, b=0),
+                height=540,
+                font=dict(family="Inter, sans-serif", color=PALETTE["text_dim"]),
+                hoverlabel=dict(bgcolor=PALETTE["surface2"],
+                                bordercolor=PALETTE["border_lt"],
+                                font_color=PALETTE["text"],
+                                font_family="Inter"),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Below the map: bar chart + table
+            g1, g2 = st.columns([3, 2])
+            with g1:
+                st.markdown("<div class='sec'><h3>Revenue by city</h3></div>",
+                            unsafe_allow_html=True)
+                top_cities = city_agg.head(15)
+                bar = go.Figure(go.Bar(
+                    x=top_cities["revenue"], y=top_cities["city_raw"],
+                    orientation="h",
+                    marker=dict(
+                        color=top_cities["revenue"],
+                        colorscale=[[0, "#0E5A4A"], [1, "#19E3B6"]],
+                        line=dict(width=0),
+                    ),
+                    text=top_cities["revenue"],
+                    texttemplate="%{text:,.0f}",
+                    textposition="outside",
+                    textfont=dict(color=PALETTE["text_dim"], size=10),
+                    cliponaxis=False,
+                    hovertemplate="<b>%{y}</b><br>%{x:,.0f} " + CURRENCY +
+                                  "<extra></extra>",
+                ))
+                bar.update_yaxes(autorange="reversed")
+                st.plotly_chart(style_fig(bar, height=420, show_legend=False),
+                                use_container_width=True)
+            with g2:
+                st.markdown("<div class='sec'><h3>City ranking</h3></div>",
+                            unsafe_allow_html=True)
+                tbl = city_agg[["city_raw", "revenue", "orders", "customers"]].copy()
+                tbl.columns = ["City", f"Revenue ({CURRENCY})", "Orders", "Customers"]
+                st.dataframe(
+                    tbl, use_container_width=True, hide_index=True, height=420,
+                    column_config={
+                        f"Revenue ({CURRENCY})":
+                            st.column_config.NumberColumn(format="%,.0f"),
+                        "Orders": st.column_config.NumberColumn(format="%,d"),
+                        "Customers": st.column_config.NumberColumn(format="%,d"),
+                    },
+                )
+
+            if unmapped_rev > 0:
+                st.caption(
+                    f"<span style='color:#71717A;font-size:11px'>"
+                    f"{fmt_money(unmapped_rev, CURRENCY, compact=True)} of revenue "
+                    f"({unmapped_orders:,} orders) couldn't be placed on the map "
+                    "— customer either has no city in Odoo or a city name not "
+                    "yet in our coordinate table. To improve coverage, fill in "
+                    "the city field on those Odoo contacts."
+                    "</span>",
+                    unsafe_allow_html=True,
+                )
 
 
 # -------- Live Activity --------
