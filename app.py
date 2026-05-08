@@ -10,6 +10,7 @@ Data source: Odoo XMLRPC. 100% READ-ONLY (search_read only).
 """
 import os
 import base64
+import re
 import textwrap
 import uuid
 import xmlrpc.client
@@ -1295,6 +1296,15 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     return df
 
 
+def _clean_product_name(name):
+    """Strip a leading '[code] ' SKU-prefix from an Odoo product display name.
+    Example:  '[P-CA-B-1072-S] Carakale | Dead Sea-rious (33cl)'
+              -> 'Carakale | Dead Sea-rious (33cl)' """
+    if not name:
+        return name
+    return re.sub(r"^\s*\[[^\]]+\]\s*", "", str(name)).strip()
+
+
 # Order-line fetcher (for the SKU / Products tab) — read-only, cached.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
@@ -1334,7 +1344,7 @@ def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
             continue
         rows.append({
             "product_id": l["product_id"][0],
-            "product_name": l["product_id"][1],
+            "product_name": _clean_product_name(l["product_id"][1]),
             "order_id": l["order_id"][0] if l.get("order_id") else None,
             "qty": float(l.get("product_uom_qty") or 0),
             "revenue": float(l.get("price_subtotal") or 0),
@@ -1346,7 +1356,7 @@ def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
             continue
         rows.append({
             "product_id": l["product_id"][0],
-            "product_name": l["product_id"][1],
+            "product_name": _clean_product_name(l["product_id"][1]),
             "order_id": l["order_id"][0] if l.get("order_id") else None,
             "qty": float(l.get("qty") or 0),
             "revenue": float(l.get("price_subtotal") or 0),
