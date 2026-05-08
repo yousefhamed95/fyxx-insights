@@ -574,6 +574,43 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     color: #FECACA !important;
 }
 
+/* Alerts grid */
+.alert-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.alert-card {
+    background: linear-gradient(160deg, #131318 0%, #0E0E13 100%);
+    border: 1px solid #23232B;
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+.alert-ic {
+    width: 32px; height: 32px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+    flex-shrink: 0;
+}
+.alert-body { flex: 1; min-width: 0; }
+.alert-title {
+    color: #F4F4F5;
+    font-size: 13.5px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    letter-spacing: -0.005em;
+}
+.alert-tx {
+    color: #A1A1AA;
+    font-size: 12.5px;
+    line-height: 1.6;
+}
+.alert-tx b { color: #F4F4F5; font-weight: 600; }
+
 /* Insight chips */
 .insights {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1562,10 +1599,12 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-(tab_brief, tab_exec, tab_trends, tab_channels,
- tab_customers, tab_team, tab_geo, tab_recent) = st.tabs(
-    ["  Brief  ", "  Executive Summary  ", "  Trends  ", "  Channels  ",
-     "  Customers  ", "  Salespeople  ", "  Geography  ", "  Live Activity  "]
+(tab_brief, tab_exec, tab_pace, tab_alerts, tab_trends, tab_channels,
+ tab_customers, tab_cohorts, tab_team, tab_geo, tab_compare,
+ tab_recent) = st.tabs(
+    ["  Brief  ", "  Executive Summary  ", "  Pacing  ", "  Alerts  ",
+     "  Trends  ", "  Channels  ", "  Customers  ", "  Cohorts  ",
+     "  Salespeople  ", "  Geography  ", "  Compare  ", "  Live  "]
 )
 
 
@@ -1931,6 +1970,422 @@ with tab_exec:
             st.info("No data in selected window.")
 
 
+# -------- Pacing & Forecast --------
+with tab_pace:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+    # Determine the "active period" for pacing — the natural period container
+    # for the current scope. Most useful for short scopes (Today, Week, Month, YTD).
+    if scope == "Today":
+        pace_start, pace_end = today_local, today_local
+        pace_label = "Today"
+        # For today we project hourly run-rate to end of day
+        elapsed_secs = (now_local - now_local.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
+        total_secs = 24 * 3600
+        pct_elapsed = min(1.0, elapsed_secs / total_secs)
+    elif scope == "This Week":
+        pace_start = today_local - timedelta(days=today_local.weekday())
+        pace_end = pace_start + timedelta(days=6)
+        pace_label = "This Week"
+        pct_elapsed = ((today_local - pace_start).days + 1) / 7
+    elif scope == "This Month":
+        pace_start = today_local.replace(day=1)
+        next_m = (pace_start.replace(day=28) + timedelta(days=5)).replace(day=1)
+        pace_end = next_m - timedelta(days=1)
+        pace_label = "This Month"
+        pct_elapsed = ((today_local - pace_start).days + 1) / ((pace_end - pace_start).days + 1)
+    elif scope == "YTD":
+        pace_start = date(today_local.year, 1, 1)
+        pace_end = date(today_local.year, 12, 31)
+        pace_label = "Year to Date"
+        pct_elapsed = ((today_local - pace_start).days + 1) / 366
+    elif scope == "Last 7 Days":
+        pace_start = today_local - timedelta(days=6)
+        pace_end = today_local
+        pace_label = "Last 7 Days"
+        pct_elapsed = 1.0
+    elif scope == "Last 30 Days":
+        pace_start = today_local - timedelta(days=29)
+        pace_end = today_local
+        pace_label = "Last 30 Days"
+        pct_elapsed = 1.0
+    else:
+        pace_start, pace_end = curr_start, curr_end
+        pace_label = scope_label
+        total = max(1, (pace_end - pace_start).days + 1)
+        elapsed = max(0, min(total, (today_local - pace_start).days + 1))
+        pct_elapsed = elapsed / total
+
+    pct_elapsed = max(0.001, min(1.0, pct_elapsed))
+
+    df_pace = df[(df["day"] >= pace_start) & (df["day"] <= pace_end)]
+    pace_rev = float(df_pace["amount_total"].sum()) if not df_pace.empty else 0.0
+
+    # Build a baseline from the prior 3 equivalent periods (e.g., last 3 months
+    # for a monthly scope) — gives a more stable reference than just last cycle.
+    def _prior_avg(start, end, n=3):
+        span = (end - start).days + 1
+        totals = []
+        for i in range(1, n + 1):
+            ps = start - timedelta(days=span * i)
+            pe = ps + timedelta(days=span - 1)
+            r = float(df[(df["day"] >= ps) & (df["day"] <= pe)]["amount_total"].sum())
+            if r > 0:
+                totals.append(r)
+        return sum(totals) / len(totals) if totals else 0.0
+
+    baseline = _prior_avg(pace_start, pace_end, n=3)
+    forecast = pace_rev / pct_elapsed if pct_elapsed > 0 else pace_rev
+    pace_pct = (pace_rev / (baseline * pct_elapsed) * 100) if baseline else None
+
+    # ---------- Header ----------
+    st.markdown(
+        "<div class='sec'><h3>Pacing & forecast</h3>"
+        f"<div class='sec-sub'>{pace_label} · {pace_start.strftime('%d %b')} → "
+        f"{pace_end.strftime('%d %b %Y')} · {pct_elapsed*100:.0f}% elapsed</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ---------- Pacing dial + KPI strip ----------
+    col_dial, col_kpis = st.columns([2, 3])
+
+    with col_dial:
+        # Gauge: where we currently are vs baseline
+        gauge_max = max(baseline * 1.4, forecast * 1.1, pace_rev * 1.1, 1)
+        gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=pace_rev,
+            number={"valueformat": ",.0f", "font": {"size": 30, "color": "#F4F4F5"}},
+            title={"text": f"<span style='color:#A1A1AA;font-size:11px'>{pace_label} · current</span>",
+                   "font": {"size": 12}},
+            gauge={
+                "axis": {"range": [0, gauge_max],
+                         "tickfont": {"color": "#71717A", "size": 9}},
+                "bar": {"color": "#19E3B6", "thickness": 0.28},
+                "bgcolor": "#0E0E12",
+                "borderwidth": 0,
+                "steps": [
+                    {"range": [0, baseline * 0.6 if baseline else gauge_max * 0.4],
+                     "color": "rgba(248,113,113,0.10)"},
+                    {"range": [baseline * 0.6 if baseline else gauge_max * 0.4,
+                               baseline if baseline else gauge_max * 0.7],
+                     "color": "rgba(245,181,68,0.10)"},
+                    {"range": [baseline if baseline else gauge_max * 0.7, gauge_max],
+                     "color": "rgba(34,197,94,0.10)"},
+                ],
+                "threshold": {
+                    "line": {"color": "#A78BFA", "width": 3},
+                    "thickness": 0.85,
+                    "value": baseline * pct_elapsed if baseline else 0,
+                },
+            },
+        ))
+        gauge.update_layout(
+            height=280, margin=dict(l=0, r=0, t=30, b=0),
+            paper_bgcolor=PALETTE["surface"], font=dict(family="Inter, sans-serif"),
+        )
+        st.plotly_chart(gauge, use_container_width=True,
+                        config={"displayModeBar": False})
+
+    with col_kpis:
+        # 4 sub-KPIs
+        if pace_pct is not None:
+            if pace_pct >= 105:
+                pace_status = ("Ahead of pace", "kpi-delta-up", "▲")
+            elif pace_pct >= 95:
+                pace_status = ("On pace", "", "●")
+            else:
+                pace_status = ("Behind pace", "kpi-delta-dn", "▼")
+        else:
+            pace_status = ("No prior baseline", "", "")
+
+        kpi_html = "<div class='kpi-grid' style='gap:10px'>"
+        kpi_html += kpi_card(
+            "Forecast end-of-period",
+            fmt_money(forecast, CURRENCY, compact=True),
+            (f"At current run-rate of {fmt_money(pace_rev/pct_elapsed if pct_elapsed else 0, CURRENCY)} "
+             f"per period unit"),
+            f"Baseline (avg of prior 3): {fmt_money(baseline, CURRENCY, compact=True)}" if baseline else "",
+        )
+        kpi_html += kpi_card(
+            "Pacing status",
+            f"<span class='{pace_status[1]}'>{pace_status[2]} {pace_status[0]}</span>"
+            if pace_status[2] else pace_status[0],
+            f"{pace_pct:.1f}% of the pro-rated baseline" if pace_pct is not None else "",
+            f"Pro-rated target: {fmt_money(baseline * pct_elapsed if baseline else 0, CURRENCY, compact=True)}",
+        )
+        # Required daily run-rate to match baseline
+        days_left = max(0, (pace_end - today_local).days)
+        if days_left > 0 and baseline:
+            required = (baseline - pace_rev) / days_left
+            kpi_html += kpi_card(
+                "Required daily run-rate",
+                fmt_money(max(0, required), CURRENCY, compact=True),
+                f"To match baseline by period end · {days_left} days remaining",
+                "",
+            )
+        else:
+            kpi_html += kpi_card(
+                "Days remaining",
+                f"{days_left:,}",
+                "Period ends today" if days_left == 0 else "",
+                "",
+            )
+        # Forecast vs baseline delta
+        if baseline:
+            fdiff = (forecast - baseline) / baseline * 100
+            cls = "kpi-delta-up" if fdiff >= 0 else "kpi-delta-dn"
+            arrow = "▲" if fdiff >= 0 else "▼"
+            kpi_html += kpi_card(
+                "Forecast vs baseline",
+                f"<span class='{cls}'>{arrow} {abs(fdiff):.1f}%</span>",
+                fmt_money(forecast - baseline, CURRENCY, compact=True) + " absolute",
+                "",
+            )
+        kpi_html += "</div>"
+        st.markdown(kpi_html, unsafe_allow_html=True)
+
+    # ---------- Cumulative this-period vs prior baseline ----------
+    st.markdown("<div class='sec' style='margin-top:18px'>"
+                "<h3>Cumulative this period vs prior</h3>"
+                "<div class='sec-sub'>Day-by-day cumulative revenue, this cycle (neon) "
+                "vs each of the prior 3 equivalent cycles</div></div>",
+                unsafe_allow_html=True)
+    if baseline:
+        fig = go.Figure()
+        span = (pace_end - pace_start).days + 1
+        # Plot the prior 3 cycles (faint) + this cycle (bright)
+        for i in range(3, 0, -1):
+            ps = pace_start - timedelta(days=span * i)
+            pe = ps + timedelta(days=span - 1)
+            d_p = df[(df["day"] >= ps) & (df["day"] <= pe)].copy()
+            if d_p.empty:
+                continue
+            d_p["offset"] = d_p["day"].map(lambda x: (x - ps).days)
+            cum = d_p.groupby("offset")["amount_total"].sum().sort_index().cumsum()
+            fig.add_trace(go.Scatter(
+                x=list(range(span)),
+                y=[cum.get(j, cum[cum.index <= j].max() if any(cum.index <= j) else 0)
+                   for j in range(span)],
+                mode="lines",
+                name=f"{ps.strftime('%d %b')} → {pe.strftime('%d %b')}",
+                line=dict(width=1.5, color="#52525B", dash="dot"),
+                opacity=0.6,
+                hovertemplate="Day %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+            ))
+        # This cycle
+        d_cur = df[(df["day"] >= pace_start) & (df["day"] <= pace_end)].copy()
+        if not d_cur.empty:
+            d_cur["offset"] = d_cur["day"].map(lambda x: (x - pace_start).days)
+            cum_cur = d_cur.groupby("offset")["amount_total"].sum().sort_index().cumsum()
+            fig.add_trace(go.Scatter(
+                x=cum_cur.index, y=cum_cur.values,
+                mode="lines+markers",
+                name=f"This cycle",
+                line=dict(width=3, color="#19E3B6"),
+                marker=dict(size=5, color="#19E3B6"),
+                hovertemplate="Day %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+            ))
+            # Forecast extension (dashed neon)
+            if pct_elapsed < 1 and len(cum_cur) > 0:
+                last_day = int(cum_cur.index.max())
+                last_val = float(cum_cur.iloc[-1])
+                rate = last_val / (last_day + 1) if last_day >= 0 else 0
+                proj_x = list(range(last_day, span))
+                proj_y = [last_val + rate * (i - last_day) for i in proj_x]
+                fig.add_trace(go.Scatter(
+                    x=proj_x, y=proj_y,
+                    mode="lines", name="Forecast",
+                    line=dict(width=2, color="#19E3B6", dash="dash"),
+                    opacity=0.6, showlegend=True,
+                    hovertemplate="Day %{x}<br>~%{y:,.0f} " + CURRENCY + " (forecast)<extra></extra>",
+                ))
+        fig.update_xaxes(title="Day of period")
+        fig.update_yaxes(title=None)
+        st.plotly_chart(style_fig(fig, height=360), use_container_width=True)
+    else:
+        st.info("Need at least one prior equivalent period for baseline comparison.")
+
+    # ---------- 7-day momentum ----------
+    st.markdown("<div class='sec' style='margin-top:14px'>"
+                "<h3>7-day momentum</h3>"
+                "<div class='sec-sub'>Rolling 7-day revenue · last 60 days</div></div>",
+                unsafe_allow_html=True)
+    cutoff = today_local - timedelta(days=59)
+    d60 = df[df["day"] >= cutoff].copy()
+    if not d60.empty:
+        daily = d60.groupby("day")["amount_total"].sum().reset_index()
+        daily = daily.sort_values("day")
+        daily["rolling7"] = daily["amount_total"].rolling(7, min_periods=1).mean()
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=daily["day"], y=daily["amount_total"],
+            name="Daily",
+            marker=dict(color="#23232B", line=dict(width=0)),
+            hovertemplate="<b>%{x|%d %b}</b><br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=daily["day"], y=daily["rolling7"],
+            mode="lines", name="7-day avg",
+            line=dict(width=2.5, color="#19E3B6", shape="spline"),
+            hovertemplate="<b>%{x|%d %b}</b><br>7d avg: %{y:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
+
+
+# -------- Alerts & Anomalies --------
+with tab_alerts:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Anomalies & alerts</h3>"
+        f"<div class='sec-sub'>{scope_label} · auto-detected outliers and risk signals</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    alerts = []  # list of (severity, icon, title, body)
+
+    if not df_curr.empty:
+        # 1) Statistical day outliers (>2σ from mean of last 60 days baseline)
+        cutoff = today_local - timedelta(days=59)
+        baseline_df = df[df["day"] >= cutoff]
+        if not baseline_df.empty:
+            daily_b = baseline_df.groupby("day")["amount_total"].sum()
+            mean_b, std_b = daily_b.mean(), daily_b.std()
+            curr_daily = df_curr.groupby("day")["amount_total"].sum()
+            for d_, v in curr_daily.items():
+                if std_b > 0:
+                    z = (v - mean_b) / std_b
+                    if z >= 2:
+                        alerts.append(("good", "▲",
+                            f"Outlier high day · {d_.strftime('%a %d %b')}",
+                            f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
+                            f"is <b>{z:.1f}σ above</b> the 60-day mean of "
+                            f"{fmt_money(mean_b, CURRENCY, compact=True)}."))
+                    elif z <= -2:
+                        alerts.append(("bad", "▼",
+                            f"Outlier low day · {d_.strftime('%a %d %b')}",
+                            f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
+                            f"is <b>{abs(z):.1f}σ below</b> the 60-day mean."))
+
+        # 2) Concentration risk
+        cust_rev = df_curr.groupby("customer")["amount_total"].sum().sort_values(ascending=False)
+        total = float(cust_rev.sum())
+        if len(cust_rev) > 0 and total > 0:
+            top_share = cust_rev.iloc[0] / total * 100
+            if top_share >= 25:
+                alerts.append(("warn", "◆",
+                    f"Customer concentration risk",
+                    f"<b>{cust_rev.index[0]}</b> accounts for "
+                    f"<b>{top_share:.1f}%</b> of revenue this period — "
+                    f"single-customer dependency."))
+            top10_share = cust_rev.head(10).sum() / total * 100
+            if top10_share >= 70 and len(cust_rev) >= 10:
+                alerts.append(("warn", "◆",
+                    f"Top-10 concentration",
+                    f"Top 10 customers drive <b>{top10_share:.1f}%</b> "
+                    f"of revenue — diversification opportunity."))
+
+        # 3) Channel deceleration vs baseline
+        ch_curr_s = df_curr.groupby("channel")["amount_total"].sum()
+        # Baseline: prior 4 equivalent periods averaged
+        span = (curr_end - curr_start).days + 1
+        ch_base = {}
+        for ch in ch_curr_s.index:
+            totals = []
+            for i in range(1, 5):
+                ps = curr_start - timedelta(days=span * i)
+                pe = ps + timedelta(days=span - 1)
+                d_p = df[(df["day"] >= ps) & (df["day"] <= pe) & (df["channel"] == ch)]
+                if not d_p.empty:
+                    totals.append(float(d_p["amount_total"].sum()))
+            ch_base[ch] = sum(totals) / len(totals) if totals else 0
+        for ch, v in ch_curr_s.items():
+            base = ch_base.get(ch, 0)
+            if base > 0:
+                drop = (v - base) / base * 100
+                if drop <= -25:
+                    alerts.append(("bad", "▼",
+                        f"{ch} significantly down",
+                        f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
+                        f"is <b>{abs(drop):.1f}% below</b> the 4-period baseline of "
+                        f"{fmt_money(base, CURRENCY, compact=True)}."))
+                elif drop >= 30:
+                    alerts.append(("good", "▲",
+                        f"{ch} significantly up",
+                        f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
+                        f"is <b>{drop:.1f}% above</b> the 4-period baseline of "
+                        f"{fmt_money(base, CURRENCY, compact=True)}."))
+
+        # 4) At-risk regular customers (active before, silent recently)
+        # Define: customer with 3+ orders in days [-90, -30] but 0 orders in days [-30, 0]
+        ref_start = today_local - timedelta(days=90)
+        ref_mid = today_local - timedelta(days=30)
+        prior_window = df[(df["day"] >= ref_start) & (df["day"] < ref_mid)]
+        recent_window = df[(df["day"] >= ref_mid) & (df["day"] <= today_local)]
+        if not prior_window.empty:
+            prior_orders = prior_window.groupby("customer").size()
+            regulars = prior_orders[prior_orders >= 3].index
+            recent_active = set(recent_window["customer"].unique())
+            at_risk = [c for c in regulars if c not in recent_active]
+            if at_risk:
+                # Show top 5 by their prior-period revenue
+                ar_rev = (prior_window[prior_window["customer"].isin(at_risk)]
+                          .groupby("customer")["amount_total"].sum()
+                          .sort_values(ascending=False))
+                top_at_risk = ar_rev.head(5)
+                names_html = "<br>".join(
+                    f"&nbsp;&nbsp;• {c} — was {fmt_money(v, CURRENCY, compact=True)}"
+                    for c, v in top_at_risk.items()
+                )
+                alerts.append(("warn", "◆",
+                    f"{len(at_risk)} at-risk regulars",
+                    f"Customers with 3+ orders in the prior 60 days "
+                    f"who haven't ordered in the last 30:<br>{names_html}"))
+
+        # 5) Best day callout
+        by_day = df_curr.groupby("day")["amount_total"].sum()
+        if len(by_day) > 1:
+            best_day = by_day.idxmax()
+            best_v = by_day.max()
+            avg_v = by_day.mean()
+            if avg_v and best_v / avg_v >= 1.5:
+                alerts.append(("good", "★",
+                    f"Standout day · {best_day.strftime('%a %d %b')}",
+                    f"<b>{fmt_money(best_v, CURRENCY, compact=True)}</b> — "
+                    f"<b>{best_v/avg_v:.1f}×</b> the period's daily average."))
+
+    # ---------- Render alerts ----------
+    if not alerts:
+        st.markdown(
+            "<div class='brief-card'><p class='brief-callout brief-good'>"
+            "No anomalies detected for this period — performance is within "
+            "normal ranges across customers and channels."
+            "</p></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        # Group by severity
+        severity_order = {"bad": 0, "warn": 1, "good": 2}
+        alerts.sort(key=lambda a: severity_order.get(a[0], 99))
+        cards_html = ""
+        for severity, icon, title, body in alerts:
+            color, ic_bg = {
+                "bad":  ("#F87171", "rgba(248,113,113,0.10)"),
+                "warn": ("#F5B544", "rgba(245,181,68,0.10)"),
+                "good": ("#22C55E", "rgba(34,197,94,0.10)"),
+            }.get(severity, ("#A1A1AA", "rgba(161,161,170,0.10)"))
+            cards_html += (
+                f"<div class='alert-card' style='border-left:3px solid {color}'>"
+                f"<div class='alert-ic' style='color:{color};background:{ic_bg}'>{icon}</div>"
+                f"<div class='alert-body'>"
+                f"<div class='alert-title'>{title}</div>"
+                f"<div class='alert-tx'>{body}</div>"
+                f"</div></div>"
+            )
+        st.markdown(f"<div class='alert-grid'>{cards_html}</div>",
+                    unsafe_allow_html=True)
+
+
 # -------- Trends --------
 with tab_trends:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -2174,6 +2629,190 @@ with tab_customers:
                      f"<br><span style='font-size:10px;color:#A1A1AA'>Customers</span>",
                 showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
             st.plotly_chart(style_fig(fig, height=360), use_container_width=True)
+
+
+# -------- Cohorts & Retention --------
+with tab_cohorts:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Customer cohorts &amp; retention</h3>"
+        "<div class='sec-sub'>Each row is a customer's first-purchase month; "
+        "columns show the % that came back N months later</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    if df.empty:
+        st.info("No customer data available.")
+    else:
+        # Compute first-purchase month per customer
+        first_order = df.groupby("customer")["dt_local"].min().reset_index()
+        first_order["cohort"] = first_order["dt_local"].dt.to_period("M")
+        # All orders, tagged with their customer's cohort
+        co = df.merge(first_order[["customer", "cohort"]], on="customer", how="left")
+        co["order_period"] = co["dt_local"].dt.to_period("M")
+        co["months_offset"] = (
+            (co["order_period"] - co["cohort"]).apply(lambda p: p.n)
+        )
+
+        # Build retention matrix (% of cohort retained)
+        cohort_users = (co.groupby(["cohort", "months_offset"])["customer"]
+                        .nunique().reset_index())
+        cohort_size = (cohort_users[cohort_users["months_offset"] == 0]
+                       .set_index("cohort")["customer"])
+        cohort_users["retention"] = cohort_users.apply(
+            lambda r: r["customer"] / cohort_size[r["cohort"]] * 100
+            if r["cohort"] in cohort_size and cohort_size[r["cohort"]] else 0,
+            axis=1,
+        )
+        matrix = (cohort_users
+                  .pivot(index="cohort", columns="months_offset", values="retention")
+                  .sort_index())
+
+        # KPIs about retention
+        avg_repeat = float(matrix.iloc[:, 1:].stack().mean()) if matrix.shape[1] > 1 else 0
+        m1_repeat = float(matrix[1].mean()) if 1 in matrix.columns else 0
+        total_customers = int(cohort_size.sum())
+        # New vs returning revenue in current scope
+        if not df_curr.empty:
+            df_c = df_curr.merge(first_order[["customer", "cohort"]],
+                                 on="customer", how="left")
+            df_c["order_period"] = df_c["dt_local"].dt.to_period("M")
+            df_c["is_new"] = df_c["order_period"] == df_c["cohort"]
+            new_rev = float(df_c[df_c["is_new"]]["amount_total"].sum())
+            ret_rev = float(df_c[~df_c["is_new"]]["amount_total"].sum())
+        else:
+            new_rev = ret_rev = 0
+        new_pct = (new_rev / (new_rev + ret_rev) * 100) if (new_rev + ret_rev) else 0
+
+        kpi_html = "<div class='kpi-grid'>"
+        kpi_html += kpi_card(
+            "Total customers tracked",
+            f"{total_customers:,}",
+            f"Across {len(cohort_size)} acquisition cohorts",
+            "",
+        )
+        kpi_html += kpi_card(
+            "Month-1 repeat rate",
+            f"{m1_repeat:.1f}%",
+            "Average % of customers who came back the very next month",
+            "",
+        )
+        kpi_html += kpi_card(
+            "Avg retention (M1+)",
+            f"{avg_repeat:.1f}%",
+            "Mean retention across all months after acquisition",
+            "",
+        )
+        kpi_html += kpi_card(
+            f"New vs returning · {scope_label}",
+            f"{new_pct:.0f}% new",
+            f"<b>{fmt_money(new_rev, CURRENCY, compact=True)}</b> from new · "
+            f"<b>{fmt_money(ret_rev, CURRENCY, compact=True)}</b> from returning",
+            "",
+        )
+        kpi_html += "</div>"
+        st.markdown(kpi_html, unsafe_allow_html=True)
+
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+        # ---------- Cohort heatmap ----------
+        st.markdown("<div class='sec'><h3>Retention heatmap</h3>"
+                    "<div class='sec-sub'>Cell = % of that cohort still active "
+                    "in that month after first purchase</div></div>",
+                    unsafe_allow_html=True)
+        if matrix.shape[0] > 0 and matrix.shape[1] > 1:
+            # Limit to last 12 cohorts and first 12 month offsets to keep it readable
+            mat = matrix.iloc[-12:, :12]
+            text_z = [[(f"{v:.0f}%" if pd.notna(v) and v > 0 else "")
+                       for v in row] for row in mat.values]
+            fig = go.Figure(go.Heatmap(
+                z=mat.values,
+                x=[f"M+{c}" for c in mat.columns],
+                y=[str(idx) for idx in mat.index],
+                colorscale=[[0, "#0A0A0B"], [0.5, "#0E5A4A"], [1, "#19E3B6"]],
+                text=text_z,
+                texttemplate="%{text}",
+                textfont=dict(size=10, color="#F4F4F5"),
+                hovertemplate="Cohort %{y}<br>Month %{x}<br>%{z:.1f}%<extra></extra>",
+                showscale=False,
+                zmin=0, zmax=100,
+            ))
+            fig.update_yaxes(autorange="reversed")
+            st.plotly_chart(style_fig(fig, height=420, show_legend=False),
+                            use_container_width=True)
+        else:
+            st.info("Not enough multi-month history yet to build cohort retention.")
+
+        # ---------- New vs Returning revenue over time ----------
+        st.markdown("<div class='sec' style='margin-top:14px'>"
+                    "<h3>New vs returning revenue · monthly</h3></div>",
+                    unsafe_allow_html=True)
+        df_all = df.merge(first_order[["customer", "cohort"]],
+                          on="customer", how="left")
+        df_all["order_period"] = df_all["dt_local"].dt.to_period("M")
+        df_all["is_new"] = df_all["order_period"] == df_all["cohort"]
+        df_all["month_label"] = df_all["order_period"].astype(str)
+        nvr = (df_all.groupby(["month_label", "is_new"])["amount_total"]
+               .sum().unstack(fill_value=0).reset_index())
+        if True in nvr.columns:
+            nvr = nvr.rename(columns={True: "new", False: "returning"})
+        else:
+            nvr["new"] = 0
+        if "returning" not in nvr.columns:
+            nvr["returning"] = 0
+        nvr = nvr.sort_values("month_label").tail(18)
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=nvr["month_label"], y=nvr["new"], name="New",
+            marker=dict(color="#19E3B6", line=dict(width=0)),
+            text=nvr["new"], texttemplate="%{text:,.0f}",
+            textposition="inside", textfont=dict(color="#07221C", size=10),
+            hovertemplate="<b>%{x}</b><br>New: %{y:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        fig.add_trace(go.Bar(
+            x=nvr["month_label"], y=nvr["returning"], name="Returning",
+            marker=dict(color="#52525B", line=dict(width=0)),
+            text=nvr["returning"], texttemplate="%{text:,.0f}",
+            textposition="inside", textfont=dict(color="#F4F4F5", size=10),
+            hovertemplate="<b>%{x}</b><br>Returning: %{y:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        fig.update_layout(barmode="stack")
+        st.plotly_chart(style_fig(fig, height=320), use_container_width=True)
+
+        # ---------- Customer LTV distribution ----------
+        st.markdown("<div class='sec' style='margin-top:14px'>"
+                    "<h3>Customer revenue distribution</h3>"
+                    "<div class='sec-sub'>How concentrated is revenue across customers?</div></div>",
+                    unsafe_allow_html=True)
+        ltv = df.groupby("customer")["amount_total"].sum().sort_values(ascending=False)
+        if not ltv.empty:
+            ltv_med = float(ltv.median())
+            ltv_p90 = float(ltv.quantile(0.9))
+            ltv_p99 = float(ltv.quantile(0.99))
+            stat_html = "<div class='kpi-grid'>"
+            stat_html += kpi_card("Median customer LTV",
+                                  fmt_money(ltv_med, CURRENCY), "", "")
+            stat_html += kpi_card("90th percentile LTV",
+                                  fmt_money(ltv_p90, CURRENCY),
+                                  "Top 10% of customers spend at least this much", "")
+            stat_html += kpi_card("99th percentile LTV",
+                                  fmt_money(ltv_p99, CURRENCY),
+                                  "Top 1% threshold", "")
+            stat_html += "</div>"
+            st.markdown(stat_html, unsafe_allow_html=True)
+
+            # Histogram
+            fig = go.Figure(go.Histogram(
+                x=ltv.values, nbinsx=40,
+                marker=dict(color="#19E3B6", line=dict(width=0)),
+                hovertemplate="Range: %{x}<br>Customers: %{y}<extra></extra>",
+            ))
+            fig.update_layout(bargap=0.05)
+            fig.update_xaxes(title=f"Customer lifetime revenue ({CURRENCY})")
+            fig.update_yaxes(title="Customers")
+            st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                            use_container_width=True)
 
 
 # -------- Salespeople --------
@@ -2477,6 +3116,147 @@ with tab_geo:
                     "</span>",
                     unsafe_allow_html=True,
                 )
+
+
+# -------- Period Comparator --------
+with tab_compare:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Period comparator</h3>"
+        "<div class='sec-sub'>Pick any two date ranges and compare them side-by-side</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    cmp_col1, cmp_col2 = st.columns(2)
+    with cmp_col1:
+        st.markdown(
+            "<div style='color:#19E3B6;font-size:11px;font-weight:700;"
+            "letter-spacing:0.18em;margin-bottom:6px'>PERIOD A</div>",
+            unsafe_allow_html=True,
+        )
+        a_range = st.date_input(
+            "A range",
+            value=(today_local.replace(day=1), today_local),
+            label_visibility="collapsed", key="cmp_a",
+        )
+    with cmp_col2:
+        st.markdown(
+            "<div style='color:#A78BFA;font-size:11px;font-weight:700;"
+            "letter-spacing:0.18em;margin-bottom:6px'>PERIOD B</div>",
+            unsafe_allow_html=True,
+        )
+        # Default B = same period last month
+        try:
+            b_default_start = (today_local.replace(day=1) - timedelta(days=1)).replace(day=1)
+            b_default_end = today_local.replace(day=1) - timedelta(days=1)
+        except Exception:
+            b_default_start = today_local - timedelta(days=60)
+            b_default_end = today_local - timedelta(days=30)
+        b_range = st.date_input(
+            "B range",
+            value=(b_default_start, b_default_end),
+            label_visibility="collapsed", key="cmp_b",
+        )
+
+    def _resolve_range(r):
+        if isinstance(r, tuple) and len(r) == 2:
+            return r
+        return (r if not isinstance(r, tuple) else r[0]), today_local
+
+    a_start, a_end = _resolve_range(a_range)
+    b_start, b_end = _resolve_range(b_range)
+
+    df_a = slice_df(df, a_start, a_end)
+    df_b = slice_df(df, b_start, b_end)
+
+    a_rev = float(df_a["amount_total"].sum()) if not df_a.empty else 0
+    b_rev = float(df_b["amount_total"].sum()) if not df_b.empty else 0
+    a_orders = len(df_a)
+    b_orders = len(df_b)
+    a_aov = a_rev / a_orders if a_orders else 0
+    b_aov = b_rev / b_orders if b_orders else 0
+    a_cust = df_a["customer"].nunique() if not df_a.empty else 0
+    b_cust = df_b["customer"].nunique() if not df_b.empty else 0
+
+    def _delta_block(a_v, b_v, currency=False):
+        if not b_v:
+            return "<span style='color:#71717A'>—</span>"
+        pct = (a_v - b_v) / b_v * 100
+        cls = "kpi-delta-up" if pct >= 0 else "kpi-delta-dn"
+        arrow = "▲" if pct >= 0 else "▼"
+        return f"<span class='{cls}'>{arrow} {abs(pct):.1f}%</span>"
+
+    # KPI grid: A | B | Δ
+    rows = [
+        ("Revenue", fmt_money(a_rev, CURRENCY, compact=True),
+         fmt_money(b_rev, CURRENCY, compact=True), _delta_block(a_rev, b_rev)),
+        ("Orders", f"{a_orders:,}", f"{b_orders:,}",
+         _delta_block(a_orders, b_orders)),
+        ("AOV", fmt_money(a_aov, CURRENCY), fmt_money(b_aov, CURRENCY),
+         _delta_block(a_aov, b_aov)),
+        ("Customers", f"{a_cust:,}", f"{b_cust:,}",
+         _delta_block(a_cust, b_cust)),
+    ]
+    table_html = (
+        "<div style='margin-top:10px;border:1px solid #23232B;border-radius:14px;"
+        "overflow:hidden'>"
+        "<div style='display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;"
+        "background:#16161B;padding:14px 18px;font-size:11px;color:#71717A;"
+        "font-weight:700;text-transform:uppercase;letter-spacing:0.12em;"
+        "border-bottom:1px solid #23232B'>"
+        "<div>Metric</div>"
+        f"<div style='color:#19E3B6'>A · {a_start.strftime('%d %b')} → {a_end.strftime('%d %b')}</div>"
+        f"<div style='color:#A78BFA'>B · {b_start.strftime('%d %b')} → {b_end.strftime('%d %b')}</div>"
+        "<div>A vs B</div>"
+        "</div>"
+    )
+    for label, av, bv, dv in rows:
+        table_html += (
+            "<div style='display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;"
+            "padding:16px 18px;border-bottom:1px solid #1F1F26;align-items:center'>"
+            f"<div style='color:#A1A1AA;font-size:12.5px;font-weight:600'>{label}</div>"
+            f"<div style='color:#F4F4F5;font-size:18px;font-weight:700;letter-spacing:-0.01em'>{av}</div>"
+            f"<div style='color:#F4F4F5;font-size:18px;font-weight:700;letter-spacing:-0.01em'>{bv}</div>"
+            f"<div style='font-size:14px;font-weight:600'>{dv}</div>"
+            "</div>"
+        )
+    table_html += "</div>"
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    # Channel breakdown side-by-side
+    st.markdown("<div class='sec' style='margin-top:18px'>"
+                "<h3>Channel breakdown</h3></div>",
+                unsafe_allow_html=True)
+    if df_a.empty and df_b.empty:
+        st.info("No data in either selected range.")
+    else:
+        ch_a = df_a.groupby("channel")["amount_total"].sum() if not df_a.empty else pd.Series(dtype=float)
+        ch_b = df_b.groupby("channel")["amount_total"].sum() if not df_b.empty else pd.Series(dtype=float)
+        all_ch = sorted(set(list(ch_a.index) + list(ch_b.index)),
+                        key=lambda c: -max(ch_a.get(c, 0), ch_b.get(c, 0)))
+        a_vals = [ch_a.get(c, 0) for c in all_ch]
+        b_vals = [ch_b.get(c, 0) for c in all_ch]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=all_ch, y=a_vals, name="A",
+            marker=dict(color="#19E3B6", line=dict(width=0)),
+            text=a_vals, texttemplate="%{text:,.0f}",
+            textposition="outside",
+            textfont=dict(color="#19E3B6", size=10),
+            cliponaxis=False,
+            hovertemplate="A · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        fig.add_trace(go.Bar(
+            x=all_ch, y=b_vals, name="B",
+            marker=dict(color="#A78BFA", line=dict(width=0)),
+            text=b_vals, texttemplate="%{text:,.0f}",
+            textposition="outside",
+            textfont=dict(color="#A78BFA", size=10),
+            cliponaxis=False,
+            hovertemplate="B · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08)
+        st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
 
 
 # -------- Live Activity --------
