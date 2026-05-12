@@ -1752,20 +1752,18 @@ st.markdown(
     "letter-spacing:0.18em'>Period</div>",
     unsafe_allow_html=True,
 )
-quick_options = ["Today", "Yesterday", "This Week", "This Month",
-                 "YTD", "Last 7 Days", "Last 30 Days", "Last 12 Months",
-                 "Full Year", "Custom"]
+quick_options = ["Today", "MTD", "YTD", "Custom"]
 try:
     scope = st.pills(
         "Scope", quick_options, default="Today",
         selection_mode="single", label_visibility="collapsed",
-        key="scope_pills_top",
+        key="scope_pills_v2",
     )
 except Exception:
     try:
         scope = st.segmented_control(
             "Scope", quick_options, default="Today",
-            label_visibility="collapsed", key="scope_seg_top",
+            label_visibility="collapsed", key="scope_seg_v2",
         )
     except Exception:
         scope = st.radio(
@@ -1823,57 +1821,28 @@ df = df_hist[df_hist["channel"].isin(selected_channels)].copy()
 # DERIVE PERIOD WINDOWS (current vs prior, by scope)
 # =============================================================================
 def scope_window(scope, today, sel_years, custom_start, custom_end):
-    """Returns (curr_start, curr_end, prev_start, prev_end, label)."""
+    """Returns (curr_start, curr_end, prev_start, prev_end, label).
+    Active scopes (post-2026-05-08 simplification): Today, MTD, YTD, Custom."""
     main_year = max(sel_years) if sel_years else today.year
     if scope == "Today":
         y = today - timedelta(days=1)
         return today, today, y, y, "Today"
-    if scope == "Yesterday":
-        y = today - timedelta(days=1)
-        d2 = y - timedelta(days=1)
-        return y, y, d2, d2, "Yesterday"
-    if scope == "This Week":
-        cs = today - timedelta(days=today.weekday())
-        elapsed = (today - cs).days
-        ps = cs - timedelta(days=7)
-        pe = ps + timedelta(days=elapsed)
-        return cs, today, ps, pe, "This Week"
-    if scope == "This Month":
+    if scope == "MTD":
+        # Month-to-Date: 1st of current month → today;
+        # prior period is the same number of days in the previous month.
         cs = today.replace(day=1)
         elapsed = (today - cs).days
         prev_last = cs - timedelta(days=1)
         ps = prev_last.replace(day=1)
         pe = ps + timedelta(days=elapsed)
-        return cs, today, ps, pe, "This Month"
-    if scope == "Last 7 Days":
-        cs = today - timedelta(days=6)
-        ps = cs - timedelta(days=7)
-        pe = cs - timedelta(days=1)
-        return cs, today, ps, pe, "Last 7 Days"
+        return cs, today, ps, pe, "MTD"
     if scope == "YTD":
         cs = date(main_year, 1, 1)
         ce = today if main_year == today.year else date(main_year, 12, 31)
         ps = date(main_year - 1, 1, 1)
         pe = ce.replace(year=main_year - 1)
         return cs, ce, ps, pe, f"YTD {main_year}"
-    if scope == "Full Year":
-        cs = date(main_year, 1, 1)
-        ce = date(main_year, 12, 31)
-        ps = date(main_year - 1, 1, 1)
-        pe = date(main_year - 1, 12, 31)
-        return cs, ce, ps, pe, f"FY {main_year}"
-    if scope == "Last 30 Days":
-        cs = today - timedelta(days=29)
-        ce = today
-        ps = cs - timedelta(days=30)
-        pe = cs - timedelta(days=1)
-        return cs, ce, ps, pe, "Last 30 Days"
-    if scope == "Last 12 Months":
-        cs = today - timedelta(days=365)
-        ce = today
-        ps = cs - timedelta(days=365)
-        pe = cs - timedelta(days=1)
-        return cs, ce, ps, pe, "Last 12 Months"
+    # Custom (or unknown) → use the user's date range
     cs = custom_start or today.replace(month=1, day=1)
     ce = custom_end or today
     span = (ce - cs).days
@@ -2808,32 +2777,17 @@ with tab_pace:
         elapsed_secs = (now_local - now_local.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
         total_secs = 24 * 3600
         pct_elapsed = min(1.0, elapsed_secs / total_secs)
-    elif scope == "This Week":
-        pace_start = today_local - timedelta(days=today_local.weekday())
-        pace_end = pace_start + timedelta(days=6)
-        pace_label = "This Week"
-        pct_elapsed = ((today_local - pace_start).days + 1) / 7
-    elif scope == "This Month":
+    elif scope == "MTD":
         pace_start = today_local.replace(day=1)
         next_m = (pace_start.replace(day=28) + timedelta(days=5)).replace(day=1)
         pace_end = next_m - timedelta(days=1)
-        pace_label = "This Month"
+        pace_label = "MTD"
         pct_elapsed = ((today_local - pace_start).days + 1) / ((pace_end - pace_start).days + 1)
     elif scope == "YTD":
         pace_start = date(today_local.year, 1, 1)
         pace_end = date(today_local.year, 12, 31)
         pace_label = "Year to Date"
         pct_elapsed = ((today_local - pace_start).days + 1) / 366
-    elif scope == "Last 7 Days":
-        pace_start = today_local - timedelta(days=6)
-        pace_end = today_local
-        pace_label = "Last 7 Days"
-        pct_elapsed = 1.0
-    elif scope == "Last 30 Days":
-        pace_start = today_local - timedelta(days=29)
-        pace_end = today_local
-        pace_label = "Last 30 Days"
-        pct_elapsed = 1.0
     else:
         pace_start, pace_end = curr_start, curr_end
         pace_label = scope_label
