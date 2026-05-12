@@ -1707,14 +1707,22 @@ SUPPLIER_ALIASES = (
     #    consolidates "Fyxx | Les Caves de Pyrene", "Fyxx x UMG Bundles",
     #    "Fyxx Operations", etc. into ONE bucket called "Fyxx".
     ("fyxx",            "Fyxx"),
-    # 2) Otherwise, Union Marketing / OPTICO / Global Brands / Tafaol /
+    # 2) UMG umbrella: Union Marketing / OPTICO / Global Brands / Tafaol /
     #    standalone UMG all roll up to UMG.
     ("union marketing", "UMG"),
     ("umg",             "UMG"),
     ("optico",          "UMG"),
     ("global brands",   "UMG"),
     ("tafaol",          "UMG"),
+    # 3) Other named vendors that the user highlights individually
+    ("bulos",           "Bulos"),
+    ("arab italian",    "Arab Italian"),
+    ("yhc",             "YHC"),
 )
+
+# Vendors that the Executive Summary donut highlights individually.
+# Anything else is bucketed into "Other".
+DONUT_SUPPLIER_HIGHLIGHT = ("UMG", "Fyxx", "Bulos", "Arab Italian", "YHC")
 
 
 def _normalise_supplier(name):
@@ -3125,32 +3133,45 @@ with tab_exec:
                               if (p is not None and not pd.isna(p))
                               else "No vendor tag"
                 )
-                sup_rev = (_sup_ldf.groupby("supplier")["revenue"]
-                           .sum().sort_values(ascending=False))
-                # Top 10 + Other
-                sup_rev_full = sup_rev.copy()
-                if len(sup_rev) > 10:
-                    top10 = sup_rev.head(10)
-                    other_total = sup_rev.iloc[10:].sum()
-                    sup_rev = pd.concat([top10, pd.Series({"Other": other_total})])
+                # Aggregate by raw supplier first (preserves all real names for the table)
+                sup_rev_full = (_sup_ldf.groupby("supplier")["revenue"]
+                                .sum().sort_values(ascending=False))
 
-                _sup_palette = [
-                    "#19E3B6", "#F5B544", "#A78BFA", "#38BDF8",
-                    "#EC4899", "#22C55E", "#FBBF24", "#F87171",
-                    "#5FF5CB", "#C4B5FD", "#52525B",
-                ]
+                # ---- Donut data: bucket everything not in the highlight list as "Other" ----
+                _sup_ldf["supplier_display"] = _sup_ldf["supplier"].map(
+                    lambda s: s if s in DONUT_SUPPLIER_HIGHLIGHT else "Other"
+                )
+                sup_rev_donut = (_sup_ldf.groupby("supplier_display")["revenue"]
+                                 .sum())
+                # Fixed sequence: UMG, Fyxx, Bulos, Arab Italian, YHC, Other
+                donut_sequence = list(DONUT_SUPPLIER_HIGHLIGHT) + ["Other"]
+                sup_rev_donut = (sup_rev_donut.reindex(donut_sequence)
+                                              .fillna(0))
+                sup_rev_donut = sup_rev_donut[sup_rev_donut > 0]
+
+                # Stable colour per named vendor (sequence-aligned)
+                _SUPPLIER_DONUT_COLORS = {
+                    "UMG":          "#19E3B6",  # neon teal
+                    "Fyxx":         "#F5B544",  # gold
+                    "Bulos":        "#A78BFA",  # violet
+                    "Arab Italian": "#38BDF8",  # sky blue
+                    "YHC":          "#EC4899",  # rose
+                    "Other":        "#52525B",  # muted grey
+                }
+                donut_colors = [_SUPPLIER_DONUT_COLORS.get(c, "#52525B")
+                                for c in sup_rev_donut.index]
 
                 sa, sb = st.columns([2, 3])
                 with sa:
-                    total_sup = float(sup_rev.sum())
+                    total_sup = float(sup_rev_donut.sum())
                     fig = go.Figure(data=[go.Pie(
-                        labels=sup_rev.index.tolist(),
-                        values=sup_rev.values.tolist(),
+                        labels=sup_rev_donut.index.tolist(),
+                        values=sup_rev_donut.values.tolist(),
                         sort=False,
                         direction="clockwise",
                         hole=0.65,
                         texttemplate="%{value:,.0f}<br>%{percent}",
-                        marker=dict(colors=_sup_palette[:len(sup_rev)],
+                        marker=dict(colors=donut_colors,
                                     line=dict(color=PALETTE["surface"], width=3)),
                         hovertemplate="<b>%{label}</b><br>"
                                       "%{value:,.0f} " + CURRENCY +
@@ -3166,7 +3187,9 @@ with tab_exec:
                                     use_container_width=True)
 
                 with sb:
-                    st.markdown("<div class='sec'><h3>Top 15 suppliers</h3></div>",
+                    st.markdown("<div class='sec'><h3>Top 15 suppliers</h3>"
+                                "<div class='sec-sub'>All vendors, not just the donut "
+                                "highlights — drill into 'Other'</div></div>",
                                 unsafe_allow_html=True)
                     top15_sup = sup_rev_full.head(15).reset_index()
                     top15_sup.columns = ["Supplier", f"Revenue ({CURRENCY})"]
