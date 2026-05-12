@@ -1404,7 +1404,7 @@ def _is_retail_at_green_room(category_path):
 
 
 def _split_green_room_to_retail(rows, _ttl_bucket):
-    """Walk through `rows` (the output of fetch_orders_window), find every
+    """Walk through `rows` (the output of fetch_orders_window_v5), find every
     POS 'Green Room' row, fetch its lines + product categories, and split
     each order into a Retail row (bottles/cigars) + Green Room row (rest).
     Net / VAT / margin are allocated proportionally."""
@@ -1508,7 +1508,7 @@ def _date_window_utc(start_date, end_date, tz):
 
 
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
-def fetch_orders_window(start_iso, end_iso, _ttl_bucket,
+def fetch_orders_window_v5(start_iso, end_iso, _ttl_bucket,
                          _filter_version=DATA_FILTER_VERSION):
     """Fetch sale.order + pos.order in a UTC window. Returns flat row list."""
     so_domain = [
@@ -1591,7 +1591,7 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     start_utc, end_utc = _date_window_utc(start_date, end_date, tz)
     # Pass DATA_FILTER_VERSION explicitly so it becomes part of the cache key —
     # bumping the constant guarantees a fresh fetch on next render.
-    rows = fetch_orders_window(
+    rows = fetch_orders_window_v5(
         start_utc.strftime("%Y-%m-%d %H:%M:%S"),
         end_utc.strftime("%Y-%m-%d %H:%M:%S"),
         ttl_bucket,
