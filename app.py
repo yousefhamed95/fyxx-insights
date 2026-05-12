@@ -650,6 +650,40 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 .scope-strip .dim { color: #71717A; }
 .scope-strip b { color: #F4F4F5; font-weight: 600; }
 
+/* ===== Editorial credit line at the very top of the dashboard ===== */
+.credit-line {
+    text-align: center;
+    padding: 10px 0 14px 0;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #1F1F26;
+    color: #A1A1AA;
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+.credit-line .credit-prefix {
+    color: #71717A;
+    font-weight: 400;
+    margin-right: 4px;
+}
+.credit-line .credit-body {
+    color: #D4D4D8;
+    font-weight: 500;
+}
+.credit-line .credit-sep {
+    color: #3F3F46;
+    margin: 0 10px;
+    font-weight: 400;
+}
+.credit-line .credit-name {
+    color: #E4E4E7;
+    font-style: italic;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0.02em;
+}
+
 /* ===== Live-viewer badge (top-left, fixed, glassmorphic) ===== */
 .viewers-badge {
     position: fixed;
@@ -2026,28 +2060,18 @@ st.markdown(_scope_strip_html, unsafe_allow_html=True)
 
 
 # =============================================================================
-# HERO HEADER
+# CREDIT LINE (replaces the old hero card)
 # =============================================================================
 now_local = datetime.now(ZoneInfo(TZ))
-hero_logo_html = (
-    f"<div class='hero-logo'><img src='{logo_uri}' alt='Fyxx'/></div>"
-    if logo_uri else ""
+st.markdown(
+    "<div class='credit-line'>"
+    "<span class='credit-prefix'>Powered by</span>"
+    "<span class='credit-body'>Business Intelligence and Sales Operations Expert</span>"
+    "<span class='credit-sep'>·</span>"
+    "<span class='credit-name'>Yousef Hamed</span>"
+    "</div>",
+    unsafe_allow_html=True,
 )
-st.markdown(textwrap.dedent(f"""
-<div class='hero'>
-<div class='hero-left'>
-{hero_logo_html}
-<div>
-<div class='hero-eyebrow'>{info['company_name']} · Executive Insights</div>
-<h1><span class='hero-accent'>{scope_label}</span><span style='color:#52525B;font-weight:400'> · multi-year view</span></h1>
-</div>
-</div>
-<div style='text-align:right'>
-<span class='live-pill'><span class='live-dot'></span> Live</span>
-<div style='color:#71717A;font-size:11.5px;margin-top:8px'>Updated {now_local.strftime("%H:%M:%S")} · {TZ}</div>
-</div>
-</div>
-""").strip(), unsafe_allow_html=True)
 
 
 # =============================================================================
