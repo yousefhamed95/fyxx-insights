@@ -1342,6 +1342,7 @@ def get_user_info():
 # EVERY chart, KPI, table, and aggregation in the dashboard.
 _EXCLUDED_CUSTOMER_KEYWORDS = (
     "fyxx operations",   # 'Fyxx Operations (B2C)' company self-purchases
+    "jt international",  # 'JT INTERNATIONAL ( JORDAN ) LTD.' — exclude entirely
 )
 
 
@@ -1355,7 +1356,7 @@ def _is_internal_customer(name):
 
 
 # Bump this when the customer-exclusion rules change so the cache invalidates.
-DATA_FILTER_VERSION = 1   # v1 = exclude Fyxx Operations (B2C) globally
+DATA_FILTER_VERSION = 2   # v2 = also exclude 'JT International (Jordan) Ltd.'
 
 
 def resolve_channel_so(salesperson_name, company_name):
