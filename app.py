@@ -2037,19 +2037,8 @@ _scope_strip_html = (
 st.markdown(_scope_strip_html, unsafe_allow_html=True)
 
 
-# =============================================================================
-# CREDIT LINE (replaces the old hero card)
-# =============================================================================
+# Credit line removed by request. now_local kept — still used elsewhere (e.g. ticker timestamps).
 now_local = datetime.now(ZoneInfo(TZ))
-st.markdown(
-    "<div class='credit-line'>"
-    "<span class='credit-prefix'>Powered by</span>"
-    "<span class='credit-body'>Business Intelligence and Sales Operations Expert</span>"
-    "<span class='credit-sep'>·</span>"
-    "<span class='credit-name'>Yousef Hamed</span>"
-    "</div>",
-    unsafe_allow_html=True,
-)
 
 
 # =============================================================================
