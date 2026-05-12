@@ -2934,36 +2934,77 @@ with tab_exec:
                 if _ex_ldf.empty:
                     st.info("No product line data for the active channel selection.")
                 else:
-                    # Resolve categories
+                    # Resolve categories (both subcategory leaf and top group)
                     _ex_pids = tuple(sorted({
                         int(p) for p in _ex_ldf["product_id"].dropna().tolist()
                     }))
                     _ex_cats = fetch_product_categories(_ex_pids, hist_bucket)
+
+                    def _pid_get(pid, key):
+                        if pid is None or pd.isna(pid):
+                            return ""
+                        return (_ex_cats.get(int(pid), {}).get(key, "") or "")
+
                     _ex_ldf["subcategory"] = _ex_ldf["product_id"].map(
-                        lambda p: (_ex_cats.get(int(p), {}).get("subcategory", "—") or "—")
-                                  if (p is not None and not pd.isna(p)) else "—"
-                    )
-                    cat_rev = (_ex_ldf.groupby("subcategory")["revenue"]
-                               .sum().sort_values(ascending=False))
-                    # Keep top 8 categories, bucket the rest into "Other"
-                    if len(cat_rev) > 8:
-                        top8 = cat_rev.head(8)
-                        other_total = cat_rev.iloc[8:].sum()
-                        cat_rev = pd.concat(
-                            [top8, pd.Series({"Other": other_total})]
-                        )
-                    total_cat_rev = float(cat_rev.sum())
-                    cat_palette = [
-                        "#19E3B6", "#F5B544", "#A78BFA", "#38BDF8",
-                        "#EC4899", "#22C55E", "#FBBF24", "#F87171",
-                        "#52525B",
+                        lambda p: _pid_get(p, "subcategory"))
+                    _ex_ldf["group"] = _ex_ldf["product_id"].map(
+                        lambda p: _pid_get(p, "group"))
+
+                    # ---- Map every line to one of the 7 display categories
+                    # in the order the user asked for ----
+                    def _display_cat(sub, group):
+                        s = (sub or "").strip().lower()
+                        g = (group or "").strip().lower()
+                        if "btg" in s:
+                            return "Spirits BTG & Wine BTG"
+                        if s in ("wine", "wines"):
+                            return "Wines"
+                        if s == "spirits":
+                            return "Spirits"
+                        if "cocktail" in s:
+                            return "Cocktails"
+                        if "cigar" in s:
+                            return "Cigars"
+                        if g == "food":
+                            return "Food"
+                        return "Other"
+
+                    _ex_ldf["display_cat"] = [
+                        _display_cat(sc, gr)
+                        for sc, gr in zip(_ex_ldf["subcategory"], _ex_ldf["group"])
                     ]
+
+                    # User-defined sequence (drop empties; "Other" only if any)
+                    CAT_SEQUENCE = [
+                        "Wines", "Spirits", "Cocktails", "Food", "Cigars",
+                        "Spirits BTG & Wine BTG", "Other",
+                    ]
+                    cat_rev_raw = _ex_ldf.groupby("display_cat")["revenue"].sum()
+                    cat_rev = cat_rev_raw.reindex(CAT_SEQUENCE).fillna(0)
+                    cat_rev = cat_rev[cat_rev > 0]  # don't render zero slices
+
+                    # Per-category neon palette aligned to the sequence
+                    _DISPLAY_CAT_COLORS = {
+                        "Wines":                  "#A78BFA",  # violet (wine)
+                        "Spirits":                "#F5B544",  # gold
+                        "Cocktails":              "#EC4899",  # rose
+                        "Food":                   "#19E3B6",  # neon teal
+                        "Cigars":                 "#F87171",  # warm red
+                        "Spirits BTG & Wine BTG": "#38BDF8",  # sky blue
+                        "Other":                  "#52525B",  # muted grey
+                    }
+                    cat_colors = [_DISPLAY_CAT_COLORS.get(c, "#52525B")
+                                  for c in cat_rev.index]
+
+                    total_cat_rev = float(cat_rev.sum())
                     fig = go.Figure(data=[go.Pie(
                         labels=cat_rev.index.tolist(),
                         values=cat_rev.values.tolist(),
+                        sort=False,           # preserve the user's sequence
+                        direction="clockwise",
                         hole=0.7,
                         texttemplate="%{value:,.0f}<br>%{percent}",
-                        marker=dict(colors=cat_palette[:len(cat_rev)],
+                        marker=dict(colors=cat_colors,
                                     line=dict(color=PALETTE["surface"], width=3)),
                         hovertemplate="<b>%{label}</b><br>"
                                       "%{value:,.0f} " + CURRENCY +
