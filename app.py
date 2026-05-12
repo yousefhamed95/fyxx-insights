@@ -3316,6 +3316,24 @@ with tab_sku:
         else:
             sku_df = pd.DataFrame(sku_rows)
 
+            # ---- Apply the active channel slicer ----
+            # The line fetch is date-only filtered; keep only lines whose
+            # (source, order_id) appears in df_curr (channel-filtered).
+            if not df_curr.empty:
+                _allowed_pairs = set(zip(
+                    df_curr["source"].astype(str),
+                    df_curr["order_id"].fillna(-1).astype(int),
+                ))
+                sku_df = sku_df[sku_df.apply(
+                    lambda r: (r["source"],
+                               int(r["order_id"]) if pd.notna(r["order_id"]) else -1)
+                              in _allowed_pairs,
+                    axis=1,
+                )]
+
+        if sku_rows and sku_df.empty:
+            st.info("No product line data for the active channel + period selection.")
+        elif sku_rows and not sku_df.empty:
             # ---- Attach category / sub-category to each line ----
             _unique_pids = tuple(sorted({
                 int(p) for p in sku_df["product_id"].dropna().tolist()
