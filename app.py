@@ -1561,8 +1561,18 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
             out[r["id"]] = {"subcategory": "—", "group": "—",
                             "category_path": path}
             continue
+        # Roll-up rule: any product whose path goes through a "Spirits"
+        # parent segment (e.g. "All / Alcohol / Spirits / Whisky" or
+        # "... / Spirits / Vodka / Liqueur") is bucketed under a single
+        # "Spirits" sub-category instead of the leaf (Whisky, Vodka, ...).
+        # Leaf labels that ARE "Spirits" already (like "Spirits (BTG)") stay
+        # as-is — only the *child-of-Spirits* leaves get rolled up.
+        if any(seg.lower() == "spirits" for seg in parts[:-1]):
+            sub = "Spirits"
+        else:
+            sub = parts[-1]
         out[r["id"]] = {
-            "subcategory": parts[-1],
+            "subcategory": sub,
             "group": parts[0],
             "category_path": path,
         }
