@@ -1145,30 +1145,26 @@ def city_to_coords(city):
 # The previous "Sales" team bucket lumped 66% of revenue into one pill.
 # Replacing with warehouse-based buckets exposes 4 distinct sub-channels.
 WAREHOUSE_CHANNEL_MAP = {
-    "Fyxx E-Commerce Warehouse": "Online",
-    "Bonded Warehouse":          "B2B Bonded",
-    "Fyxx Shop Warehouse":       "Fyxx Shop",
-    "Fyxx Warehouse":            "Other Sales",
+    "Fyxx E-Commerce Warehouse": "E-com",
+    "Bonded Warehouse":          "B2B",
+    "Fyxx Shop Warehouse":       "Retail",
+    "Fyxx Warehouse":            "Retail",
 }
 POS_CONFIG_CHANNEL_MAP = {
-    3: "Green Room",        # Dine-In register
+    3: "Green Room",        # Dine-In register (will be line-split: bottles/cigars → Retail)
     2: "Retail",
-    5: "Jasmine House",
-    6: "Events (Mobile)",
+    5: "Retail",            # Jasmine House → Retail (separate company, rolled up)
+    6: "Retail",            # Events (Mobile) → Retail
 }
 EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 
 # Stable colour per channel — keeps any chart visually consistent.
 # Falls back to CHART_COLORWAY for channels not listed here.
 CHANNEL_COLORS = {
-    "Online":           "#19E3B6",  # primary neon (largest channel)
-    "Green Room":       "#A78BFA",  # violet (hospitality)
-    "B2B Bonded":       "#F5B544",  # amber/gold (premium / high-AOV)
-    "Retail":           "#38BDF8",  # sky blue
-    "Fyxx Shop":        "#EC4899",  # rose
-    "Events (Mobile)":  "#22C55E",  # green
-    "Jasmine House":    "#FBBF24",  # warm yellow
-    "Other Sales":      "#71717A",  # muted grey
+    "E-com":      "#19E3B6",  # primary neon
+    "Retail":     "#38BDF8",  # sky blue
+    "Green Room": "#A78BFA",  # violet (hospitality / dine-in)
+    "B2B":        "#F5B544",  # amber/gold (high-AOV wholesale)
 }
 
 
@@ -1343,12 +1339,127 @@ def get_user_info():
 
 
 def resolve_channel_so(warehouse_name, team_name):
-    """Map a sale.order to a friendly channel label.
-    Primary signal is warehouse_id (e.g. 'Fyxx E-Commerce Warehouse' -> 'Online');
-    falls back to team_id if no warehouse mapping is found."""
+    """Map a sale.order to one of: E-com, Retail, Green Room, B2B.
+    Primary signal is warehouse_id; anything unknown is treated as Retail
+    (the catch-all bucket for non-B2B / non-e-com physical sales)."""
     if warehouse_name and warehouse_name in WAREHOUSE_CHANNEL_MAP:
         return WAREHOUSE_CHANNEL_MAP[warehouse_name]
-    return team_name or "Other Sales"
+    return "Retail"
+
+
+def _is_retail_at_green_room(category_path):
+    """For a product sold at Green Room (POS Dine-In), decide whether the
+    line belongs to RETAIL (take-home bottle / cigar) or stays in GREEN ROOM
+    (consumed on-premise: food, cocktails, BTG, dine-in beverages)."""
+    if not category_path:
+        return False
+    p = " " + category_path.lower() + " "
+    # On-premise consumption stays in Green Room ↓
+    if "(dine-in)" in p or "(di)" in p:
+        return False
+    if "btg" in p:                         # by-the-glass spirits / wines
+        return False
+    if "/ food /" in p or p.rstrip().endswith("/ food"):
+        return False
+    if "/ drinks /" in p:                  # cocktails / mixers / drink-in
+        return False
+    if "0% beverage" in p:                 # dine-in water / mixers
+        return False
+    if "/ cocktails" in p:
+        return False
+    # Take-home retail at Green Room: alcohol bottles, cigars, cigarettes ↓
+    if "/ alcohol" in p or "/ tobacco" in p or "cigar" in p:
+        return True
+    return False
+
+
+def _split_green_room_to_retail(rows, _ttl_bucket):
+    """Walk through `rows` (the output of fetch_orders_window), find every
+    POS 'Green Room' row, fetch its lines + product categories, and split
+    each order into a Retail row (bottles/cigars) + Green Room row (rest).
+    Net / VAT / margin are allocated proportionally."""
+    gr_indices = [
+        i for i, r in enumerate(rows)
+        if r.get("source") == "POS Ticket" and r.get("channel") == "Green Room"
+    ]
+    gr_order_ids = [rows[i].get("order_id") for i in gr_indices if rows[i].get("order_id")]
+    if not gr_order_ids:
+        return rows
+
+    # 1. Fetch pos.order.line for every Green Room order in the window
+    try:
+        lines = kw(
+            "pos.order.line", "search_read",
+            [[["order_id", "in", gr_order_ids]]],
+            {"fields": ["order_id", "product_id", "price_subtotal", "margin"],
+             "limit": 500000},
+        )
+    except Exception:
+        return rows
+
+    # 2. Fetch product categories (reusing the cached helper)
+    prod_ids = tuple(sorted({
+        l["product_id"][0] for l in lines if l.get("product_id")
+    }))
+    cats = fetch_product_categories(prod_ids, _ttl_bucket) if prod_ids else {}
+
+    # 3. Aggregate retail / dine-in totals per Green Room order
+    from collections import defaultdict
+    splits = defaultdict(lambda: {
+        "retail_net": 0.0, "dine_in_net": 0.0,
+        "retail_margin": 0.0, "dine_in_margin": 0.0,
+    })
+    for l in lines:
+        if not l.get("order_id") or not l.get("product_id"):
+            continue
+        oid = l["order_id"][0]
+        pid = l["product_id"][0]
+        path = cats.get(pid, {}).get("category_path", "") if cats else ""
+        net = float(l.get("price_subtotal") or 0)
+        mg = float(l.get("margin") or 0)
+        if _is_retail_at_green_room(path):
+            splits[oid]["retail_net"] += net
+            splits[oid]["retail_margin"] += mg
+        else:
+            splits[oid]["dine_in_net"] += net
+            splits[oid]["dine_in_margin"] += mg
+
+    # 4. Rebuild rows: each Green Room order can become 1 or 2 rows
+    gr_index_set = set(gr_indices)
+    out = []
+    for i, r in enumerate(rows):
+        if i not in gr_index_set:
+            out.append(r)
+            continue
+        oid = r.get("order_id")
+        s = splits.get(oid)
+        if not s:
+            out.append(r)
+            continue
+        total = s["retail_net"] + s["dine_in_net"]
+        order_vat = float(r.get("vat") or 0)
+        if total <= 0:
+            out.append(r)
+            continue
+        if s["retail_net"] > 0:
+            ratio = s["retail_net"] / total
+            out.append({
+                **r,
+                "channel": "Retail",
+                "amount_total": s["retail_net"],
+                "vat": order_vat * ratio,
+                "margin": s["retail_margin"],
+            })
+        if s["dine_in_net"] > 0:
+            ratio = s["dine_in_net"] / total
+            out.append({
+                **r,
+                "channel": "Green Room",
+                "amount_total": s["dine_in_net"],
+                "vat": order_vat * ratio,
+                "margin": s["dine_in_margin"],
+            })
+    return out
 
 
 # =============================================================================
@@ -1438,6 +1549,8 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "state": o["state"],
             "source": "POS Ticket",
         })
+    # Line-level reclassification: bottles + cigars sold at Green Room go to Retail
+    rows = _split_green_room_to_retail(rows, _ttl_bucket)
     return rows
 
 
