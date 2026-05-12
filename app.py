@@ -1707,12 +1707,13 @@ SUPPLIER_ALIASES = (
     #    consolidates "Fyxx | Les Caves de Pyrene", "Fyxx x UMG Bundles",
     #    "Fyxx Operations", etc. into ONE bucket called "Fyxx".
     ("fyxx",            "Fyxx"),
-    # 2) Otherwise, Union Marketing / OPTICO / Global Brands / standalone UMG
-    #    all roll up to UMG.
+    # 2) Otherwise, Union Marketing / OPTICO / Global Brands / Tafaol /
+    #    standalone UMG all roll up to UMG.
     ("union marketing", "UMG"),
     ("umg",             "UMG"),
     ("optico",          "UMG"),
     ("global brands",   "UMG"),
+    ("tafaol",          "UMG"),
 )
 
 
