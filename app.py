@@ -1699,6 +1699,63 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
     return out
 
 
+# Product-supplier lookup — read-only, cached.
+@st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
+def fetch_product_suppliers(product_ids_tuple, _ttl_bucket):
+    """For each product, resolve its PRIMARY supplier (lowest-sequence
+    product.supplierinfo entry) and return dict pid -> supplier name.
+    Falls back to 'No supplier' on permission errors or missing data."""
+    if not product_ids_tuple:
+        return {}
+    ids = [int(i) for i in product_ids_tuple if i]
+    if not ids:
+        return {}
+    try:
+        prods = kw("product.product", "read", [ids],
+                   {"fields": ["id", "seller_ids"]})
+    except Exception:
+        return {}
+    # Collect every unique product.supplierinfo id referenced
+    all_sinfo_ids = set()
+    for p in prods:
+        for sid in (p.get("seller_ids") or []):
+            all_sinfo_ids.add(sid)
+    sinfo_partner = {}
+    sinfo_seq = {}
+    if all_sinfo_ids:
+        # Newer Odoo (17+) renamed the supplier reference field from 'name' to 'partner_id'.
+        # Try the modern name first; fall back to 'name' for older instances.
+        sinfos = []
+        try:
+            sinfos = kw("product.supplierinfo", "read", [list(all_sinfo_ids)],
+                        {"fields": ["id", "partner_id", "sequence"]})
+            _partner_key = "partner_id"
+        except Exception:
+            try:
+                sinfos = kw("product.supplierinfo", "read", [list(all_sinfo_ids)],
+                            {"fields": ["id", "name", "sequence"]})
+                _partner_key = "name"
+            except Exception:
+                sinfos = []
+                _partner_key = None
+        for s in sinfos:
+            sinfo_seq[s["id"]] = int(s.get("sequence") or 10)
+            nm = s.get(_partner_key) if _partner_key else None
+            if isinstance(nm, list) and len(nm) > 1:
+                sinfo_partner[s["id"]] = nm[1]
+            else:
+                sinfo_partner[s["id"]] = str(nm) if nm else "Unknown"
+    out = {}
+    for p in prods:
+        sids = p.get("seller_ids") or []
+        if not sids:
+            out[p["id"]] = "No supplier"
+            continue
+        sids_sorted = sorted(sids, key=lambda x: sinfo_seq.get(x, 999))
+        out[p["id"]] = sinfo_partner.get(sids_sorted[0], "Unknown")
+    return out
+
+
 # Partner address lookup — read-only, cached 1 hour. Returns dict id -> info.
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_partner_addresses(partner_ids_tuple):
@@ -3021,6 +3078,107 @@ with tab_exec:
                         showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
                     st.plotly_chart(style_fig(fig, height=340),
                                     use_container_width=True)
+
+    # ---- Revenue by supplier (third Exec Summary chart) ----
+    st.markdown("<div class='sec' style='margin-top:14px'>"
+                "<h3>Revenue by supplier</h3>"
+                f"<div class='sec-sub'>{scope_label} · top suppliers by net revenue</div></div>",
+                unsafe_allow_html=True)
+    if df_curr.empty:
+        st.info("No data in selected window.")
+    else:
+        _sup_start_utc, _sup_end_utc = _date_window_utc(curr_start, curr_end, TZ)
+        try:
+            _sup_lines = fetch_order_lines_window(
+                _sup_start_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                _sup_end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                hist_bucket,
+            )
+        except Exception:
+            _sup_lines = []
+        if not _sup_lines:
+            st.info("Product line data unavailable for this window.")
+        else:
+            _sup_ldf = pd.DataFrame(_sup_lines)
+            # Apply channel slicer (same trick as the category donut)
+            _allowed_sup = set(zip(
+                df_curr["source"].astype(str),
+                df_curr["order_id"].fillna(-1).astype(int),
+            ))
+            _sup_ldf = _sup_ldf[_sup_ldf.apply(
+                lambda r: (r["source"],
+                           int(r["order_id"]) if pd.notna(r["order_id"]) else -1)
+                          in _allowed_sup,
+                axis=1,
+            )]
+            if _sup_ldf.empty:
+                st.info("No product line data for the active channel selection.")
+            else:
+                _sup_pids = tuple(sorted({
+                    int(p) for p in _sup_ldf["product_id"].dropna().tolist()
+                }))
+                with st.spinner("Resolving suppliers..."):
+                    _supplier_map = fetch_product_suppliers(_sup_pids, hist_bucket)
+                _sup_ldf["supplier"] = _sup_ldf["product_id"].map(
+                    lambda p: _supplier_map.get(int(p), "No supplier")
+                              if (p is not None and not pd.isna(p))
+                              else "No supplier"
+                )
+                sup_rev = (_sup_ldf.groupby("supplier")["revenue"]
+                           .sum().sort_values(ascending=False))
+                # Top 10 + Other
+                sup_rev_full = sup_rev.copy()
+                if len(sup_rev) > 10:
+                    top10 = sup_rev.head(10)
+                    other_total = sup_rev.iloc[10:].sum()
+                    sup_rev = pd.concat([top10, pd.Series({"Other": other_total})])
+
+                _sup_palette = [
+                    "#19E3B6", "#F5B544", "#A78BFA", "#38BDF8",
+                    "#EC4899", "#22C55E", "#FBBF24", "#F87171",
+                    "#5FF5CB", "#C4B5FD", "#52525B",
+                ]
+
+                sa, sb = st.columns([2, 3])
+                with sa:
+                    total_sup = float(sup_rev.sum())
+                    fig = go.Figure(data=[go.Pie(
+                        labels=sup_rev.index.tolist(),
+                        values=sup_rev.values.tolist(),
+                        sort=False,
+                        direction="clockwise",
+                        hole=0.65,
+                        texttemplate="%{value:,.0f}<br>%{percent}",
+                        marker=dict(colors=_sup_palette[:len(sup_rev)],
+                                    line=dict(color=PALETTE["surface"], width=3)),
+                        hovertemplate="<b>%{label}</b><br>"
+                                      "%{value:,.0f} " + CURRENCY +
+                                      "<br>%{percent}<extra></extra>",
+                        textfont=dict(size=11, color=PALETTE["text"]),
+                    )])
+                    fig.update_layout(annotations=[dict(
+                        text=f"<b>{fmt_money(total_sup, CURRENCY, compact=True)}</b>"
+                             f"<br><span style='font-size:10px;color:#A1A1AA'>"
+                             f"{sup_rev_full.shape[0]} suppliers</span>",
+                        showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
+                    st.plotly_chart(style_fig(fig, height=400),
+                                    use_container_width=True)
+
+                with sb:
+                    st.markdown("<div class='sec'><h3>Top 15 suppliers</h3></div>",
+                                unsafe_allow_html=True)
+                    top15_sup = sup_rev_full.head(15).reset_index()
+                    top15_sup.columns = ["Supplier", f"Revenue ({CURRENCY})"]
+                    _max_sup = top15_sup[f"Revenue ({CURRENCY})"].max() or 1
+                    st.dataframe(
+                        top15_sup, use_container_width=True, hide_index=True,
+                        height=400,
+                        column_config={
+                            f"Revenue ({CURRENCY})": st.column_config.ProgressColumn(
+                                f"Revenue ({CURRENCY})", format="%,.0f",
+                                min_value=0, max_value=float(_max_sup)),
+                        },
+                    )
 
 
 # -------- Pacing & Forecast --------
