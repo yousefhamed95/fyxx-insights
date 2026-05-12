@@ -1150,7 +1150,7 @@ _ECOM_SALESPERSON_KEYWORDS = ("shopify",)                          # Shopify & O
 _B2B_SALESPERSON_KEYWORDS  = ("tareq", "yousef")                   # Tareq Shnoudi / Yousef Mazhareh
 _B2C_COMPANY_KEYWORDS      = ("fyxx operations (b2c)", "fyxx operations")
 POS_CONFIG_CHANNEL_MAP = {
-    3: "Green Room",        # Dine-In register (will be line-split: bottles/cigars → Retail)
+    3: "TGR",        # Dine-In register (will be line-split: bottles/cigars → Retail)
     2: "Retail",
     5: "Retail",            # Jasmine House → Retail (separate company, rolled up)
     6: "Retail",            # Events (Mobile) → Retail
@@ -1162,7 +1162,7 @@ EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 CHANNEL_COLORS = {
     "E-com":      "#19E3B6",  # primary neon
     "Retail":     "#38BDF8",  # sky blue
-    "Green Room": "#A78BFA",  # violet (hospitality / dine-in)
+    "TGR": "#A78BFA",  # violet (hospitality / dine-in)
     "B2B":        "#F5B544",  # amber/gold (high-AOV wholesale)
 }
 
@@ -1356,7 +1356,7 @@ def _is_internal_customer(name):
 
 
 # Bump this when the customer-exclusion rules change so the cache invalidates.
-DATA_FILTER_VERSION = 3   # v3 = JT International filter actually applied (cache key fix)
+DATA_FILTER_VERSION = 4   # v4 = renamed 'Green Room' channel to 'TGR'
 
 
 def resolve_channel_so(salesperson_name, company_name):
@@ -1410,7 +1410,7 @@ def _split_green_room_to_retail(rows, _ttl_bucket):
     Net / VAT / margin are allocated proportionally."""
     gr_indices = [
         i for i, r in enumerate(rows)
-        if r.get("source") == "POS Ticket" and r.get("channel") == "Green Room"
+        if r.get("source") == "POS Ticket" and r.get("channel") == "TGR"
     ]
     gr_order_ids = [rows[i].get("order_id") for i in gr_indices if rows[i].get("order_id")]
     if not gr_order_ids:
@@ -1484,7 +1484,7 @@ def _split_green_room_to_retail(rows, _ttl_bucket):
             ratio = s["dine_in_net"] / total
             out.append({
                 **r,
-                "channel": "Green Room",
+                "channel": "TGR",
                 "amount_total": s["dine_in_net"],
                 "vat": order_vat * ratio,
                 "margin": s["dine_in_margin"],
@@ -1977,7 +1977,16 @@ if not today_live.empty:
     df_hist = pd.concat([df_hist, today_live], ignore_index=True)
 
 # Channel list (built from data)
-all_channels = sorted(df_hist["channel"].dropna().unique().tolist()) if not df_hist.empty else []
+# Display order for channel pills: E-com → Retail → TGR → B2B (B2B at the end).
+# Any channel not in this list is appended after, sorted alphabetically.
+_CHANNEL_DISPLAY_ORDER = ["E-com", "Retail", "TGR", "B2B"]
+if not df_hist.empty:
+    _present = set(df_hist["channel"].dropna().unique().tolist())
+    _ordered = [c for c in _CHANNEL_DISPLAY_ORDER if c in _present]
+    _extras = sorted(c for c in _present if c not in _CHANNEL_DISPLAY_ORDER)
+    all_channels = _ordered + _extras
+else:
+    all_channels = []
 
 
 # =============================================================================
