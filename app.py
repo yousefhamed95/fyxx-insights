@@ -291,6 +291,11 @@ button[kind="pills"][aria-pressed="true"],
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Force left-to-right cell flow so Arabic names appear at the LEFT edge of
+       the cell, while internal Arabic substrings still read naturally RTL. */
+    direction: ltr;
+    text-align: left;
+    unicode-bidi: embed;
 }
 .lb-name .lb-sub {
     color: #71717A;
@@ -1609,6 +1614,15 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     df["month"] = df["dt_local"].dt.month
     df["day"] = df["dt_local"].dt.date
     return df
+
+
+def _ltr(value):
+    """Prefix a value with U+200E (LEFT-TO-RIGHT MARK) so any cell that
+    contains Arabic (or mixed) text aligns to the LEFT edge in tables
+    instead of flipping to right-aligned RTL display."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return value
+    return "‎" + str(value)
 
 
 def _clean_product_name(name):
@@ -4211,6 +4225,7 @@ with tab_loss:
                 cust_loss.columns = ["Customer", "Loss orders",
                                      f"Revenue ({CURRENCY})",
                                      f"Loss ({CURRENCY})"]
+                cust_loss["Customer"] = cust_loss["Customer"].map(_ltr)
                 _max_lc_loss = cust_loss[f"Loss ({CURRENCY})"].max() or 1
                 st.dataframe(
                     cust_loss, use_container_width=True, hide_index=True, height=460,
@@ -4282,6 +4297,7 @@ with tab_loss:
                 "Salesperson", f"Revenue ({CURRENCY})", f"Cost ({CURRENCY})",
                 f"Loss ({CURRENCY})", "Margin %", "State"
             ]
+            detail["Customer"] = detail["Customer"].map(_ltr)
             _max_loss = detail[f"Loss ({CURRENCY})"].max() or 1
             st.dataframe(
                 detail, use_container_width=True, hide_index=True, height=620,
@@ -4773,6 +4789,7 @@ with tab_customers:
             top = (df_curr.groupby("customer")["amount_total"].sum()
                    .sort_values(ascending=False).head(20).reset_index())
             top.columns = ["Customer", f"Revenue ({CURRENCY})"]
+            top["Customer"] = top["Customer"].map(_ltr)
             _max_cu_rev = top[f"Revenue ({CURRENCY})"].max() or 1
             st.dataframe(
                 top, use_container_width=True, hide_index=True, height=520,
@@ -4790,6 +4807,7 @@ with tab_customers:
                         Revenue=("amount_total", "sum"))
                    .sort_values("Orders", ascending=False).head(20).reset_index())
             top.columns = ["Customer", "Orders", f"Revenue ({CURRENCY})"]
+            top["Customer"] = top["Customer"].map(_ltr)
             _max_co_orders = top["Orders"].max() or 1
             _max_co_rev = top[f"Revenue ({CURRENCY})"].max() or 1
             st.dataframe(
@@ -5208,6 +5226,7 @@ with tab_recent:
                          "salesperson", "amount_total", "state"]].copy()
         show.columns = ["Time", "Reference", "Channel", "Source", "Customer",
                         "Salesperson", f"Total ({CURRENCY})", "State"]
+        show["Customer"] = show["Customer"].map(_ltr)
         st.dataframe(
             show.head(150), use_container_width=True, hide_index=True, height=560,
             column_config={f"Total ({CURRENCY})":
