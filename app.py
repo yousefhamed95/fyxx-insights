@@ -847,6 +847,9 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     padding: 22px 24px;
     position: relative;
     overflow: hidden;
+    /* Keep year cards a normal width even when only one is rendered */
+    max-width: 360px;
+    width: 100%;
 }
 .year-card .year-label {
     color: #A1A1AA; font-size: 12px; font-weight: 600;
