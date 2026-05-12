@@ -2956,7 +2956,10 @@ with tab_exec:
                         s = (sub or "").strip().lower()
                         g = (group or "").strip().lower()
                         if "btg" in s:
-                            return "Spirits BTG & Wine BTG"
+                            # Separate Wine BTG (by-the-glass) from Spirits BTG
+                            if "wine" in s:
+                                return "Wine BTG"
+                            return "Spirits BTG"
                         if s in ("wine", "wines"):
                             return "Wines"
                         if s == "spirits":
@@ -2977,7 +2980,7 @@ with tab_exec:
                     # User-defined sequence (drop empties; "Other" only if any)
                     CAT_SEQUENCE = [
                         "Wines", "Spirits", "Cocktails", "Food", "Cigars",
-                        "Spirits BTG & Wine BTG", "Other",
+                        "Spirits BTG", "Wine BTG", "Other",
                     ]
                     cat_rev_raw = _ex_ldf.groupby("display_cat")["revenue"].sum()
                     cat_rev = cat_rev_raw.reindex(CAT_SEQUENCE).fillna(0)
@@ -2985,13 +2988,14 @@ with tab_exec:
 
                     # Per-category neon palette aligned to the sequence
                     _DISPLAY_CAT_COLORS = {
-                        "Wines":                  "#A78BFA",  # violet (wine)
-                        "Spirits":                "#F5B544",  # gold
-                        "Cocktails":              "#EC4899",  # rose
-                        "Food":                   "#19E3B6",  # neon teal
-                        "Cigars":                 "#F87171",  # warm red
-                        "Spirits BTG & Wine BTG": "#38BDF8",  # sky blue
-                        "Other":                  "#52525B",  # muted grey
+                        "Wines":       "#A78BFA",  # violet (bottled wine)
+                        "Spirits":     "#F5B544",  # gold
+                        "Cocktails":   "#EC4899",  # rose
+                        "Food":        "#19E3B6",  # neon teal
+                        "Cigars":      "#F87171",  # warm red
+                        "Spirits BTG": "#38BDF8",  # sky blue
+                        "Wine BTG":    "#C4B5FD",  # light lavender (echoes Wines)
+                        "Other":       "#52525B",  # muted grey
                     }
                     cat_colors = [_DISPLAY_CAT_COLORS.get(c, "#52525B")
                                   for c in cat_rev.index]
