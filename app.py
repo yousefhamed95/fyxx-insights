@@ -2135,6 +2135,10 @@ curr_vat = float(df_curr["vat"].sum()) if not df_curr.empty and "vat" in df_curr
 prev_vat = float(df_prev["vat"].sum()) if not df_prev.empty and "vat" in df_prev.columns else 0.0
 curr_gross = curr_rev + curr_vat
 prev_gross = prev_rev + prev_vat
+curr_profit = float(df_curr["margin"].sum()) if not df_curr.empty and "margin" in df_curr.columns else 0.0
+prev_profit = float(df_prev["margin"].sum()) if not df_prev.empty and "margin" in df_prev.columns else 0.0
+curr_gm_pct = (curr_profit / curr_rev * 100) if curr_rev else 0.0
+prev_gm_pct = (prev_profit / prev_rev * 100) if prev_rev else 0.0
 curr_orders = len(df_curr)
 prev_orders = len(df_prev)
 curr_aov = curr_rev / curr_orders if curr_orders else 0
@@ -2255,11 +2259,12 @@ def kpi_card(label, value, sub_html="", foot="", spark=None, spark_color="#19E3B
     )
 
 
-# Daily sparklines for the 5 main KPIs (only when the period spans 2+ days)
-_spark_rev = _spark_gross = _spark_orders = _spark_aov = _spark_cust = None
+# Daily sparklines for the main KPIs (only when the period spans 2+ days)
+_spark_rev = _spark_gross = _spark_gm = _spark_orders = _spark_aov = _spark_cust = None
 try:
     if not df_curr.empty and df_curr["day"].nunique() > 1:
         _has_vat = "vat" in df_curr.columns
+        _has_margin = "margin" in df_curr.columns
         _agg_dict = {
             "rev": ("amount_total", "sum"),
             "orders": ("amount_total", "count"),
@@ -2267,6 +2272,8 @@ try:
         }
         if _has_vat:
             _agg_dict["vat"] = ("vat", "sum")
+        if _has_margin:
+            _agg_dict["profit"] = ("margin", "sum")
         _daily_kpi = (df_curr.groupby("day")
                       .agg(**_agg_dict)
                       .sort_index()
@@ -2277,6 +2284,12 @@ try:
         if _has_vat:
             _daily_kpi["gross"] = _daily_kpi["rev"] + _daily_kpi["vat"]
             _spark_gross = _daily_kpi["gross"].tolist()
+        if _has_margin:
+            _daily_kpi["gm"] = _daily_kpi.apply(
+                lambda r: r["profit"] / r["rev"] * 100 if r["rev"] else 0,
+                axis=1,
+            )
+            _spark_gm = _daily_kpi["gm"].tolist()
         _spark_rev = _daily_kpi["rev"].tolist()
         _spark_orders = _daily_kpi["orders"].tolist()
         _spark_aov = _daily_kpi["aov"].tolist()
@@ -2300,6 +2313,25 @@ kpi_html += kpi_card(
     + (f" · Prior gross: {fmt_money(prev_gross, CURRENCY, compact=True)}"
        if prev_gross else ""),
     spark=_spark_gross, spark_color="#5FF5CB",
+)
+# Gross Margin card — % delta in percentage points, not relative %
+_gm_ppt = curr_gm_pct - prev_gm_pct
+if prev_gm_pct:
+    _gm_arrow = "▲" if _gm_ppt >= 0 else "▼"
+    _gm_cls = "kpi-delta-up" if _gm_ppt >= 0 else "kpi-delta-dn"
+    _gm_delta_html = (f"<span class='{_gm_cls}'>{_gm_arrow} {abs(_gm_ppt):.1f} ppt</span> "
+                      f"<span style='color:#71717A'>vs prior period</span>")
+    _gm_foot = f"Prior: {prev_gm_pct:.1f}%"
+else:
+    _gm_delta_html = "<span style='color:#71717A'>no prior data</span>"
+    _gm_foot = ""
+kpi_html += kpi_card(
+    "Gross margin",
+    f"{curr_gm_pct:.1f}%",
+    _gm_delta_html,
+    (f"Profit: {fmt_money(curr_profit, CURRENCY, compact=True)}"
+     + (f" · {_gm_foot}" if _gm_foot else "")),
+    spark=_spark_gm, spark_color="#F5B544",
 )
 kpi_html += kpi_card(
     "Orders",
