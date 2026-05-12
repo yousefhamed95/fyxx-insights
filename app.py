@@ -1337,6 +1337,27 @@ def get_user_info():
     }
 
 
+# Customer names that represent internal / company-self transactions.
+# Any sale or POS ticket whose customer matches these is excluded from
+# EVERY chart, KPI, table, and aggregation in the dashboard.
+_EXCLUDED_CUSTOMER_KEYWORDS = (
+    "fyxx operations",   # 'Fyxx Operations (B2C)' company self-purchases
+)
+
+
+def _is_internal_customer(name):
+    """True if this customer name represents an internal / non-real entry
+    that should be excluded from sales aggregations."""
+    if not name:
+        return False
+    low = str(name).strip().lower()
+    return any(k in low for k in _EXCLUDED_CUSTOMER_KEYWORDS)
+
+
+# Bump this when the customer-exclusion rules change so the cache invalidates.
+DATA_FILTER_VERSION = 1   # v1 = exclude Fyxx Operations (B2C) globally
+
+
 def resolve_channel_so(salesperson_name, company_name):
     """Map a sale.order to one of: E-com / Retail / B2B (Green Room is POS-only).
 
@@ -1486,7 +1507,8 @@ def _date_window_utc(start_date, end_date, tz):
 
 
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
-def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
+def fetch_orders_window(start_iso, end_iso, _ttl_bucket,
+                         _filter_version=DATA_FILTER_VERSION):
     """Fetch sale.order + pos.order in a UTC window. Returns flat row list."""
     so_domain = [
         ["date_order", ">=", start_iso],
@@ -1556,6 +1578,9 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "state": o["state"],
             "source": "POS Ticket",
         })
+    # Global customer filter: exclude internal/self-purchase entries
+    # (currently: any customer name containing 'Fyxx Operations')
+    rows = [r for r in rows if not _is_internal_customer(r.get("customer"))]
     # Line-level reclassification: bottles + cigars sold at Green Room go to Retail
     rows = _split_green_room_to_retail(rows, _ttl_bucket)
     return rows
