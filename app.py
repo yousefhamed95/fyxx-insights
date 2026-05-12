@@ -4412,14 +4412,41 @@ with tab_cohorts:
         unsafe_allow_html=True,
     )
 
-    if df.empty:
-        st.info("No customer data available.")
+    # Exclude pseudo-customers that distort cohort math:
+    #  - "Walk-in"               (POS orders without a partner_id — lumped bucket)
+    #  - "Fyxx Operations (B2C)" (company self-purchase / internal entries)
+    #  - "—"                     (sale.orders without a partner_id)
+    _COHORT_EXCLUDE = {
+        "Walk-in", "walk-in", "Walk In", "walk in",
+        "Fyxx Operations (B2C)", "fyxx operations (b2c)",
+        "Fyxx Operations", "fyxx operations",
+        "—", "-", "",
+    }
+    df_cohort_src = (df[~df["customer"].astype(str).str.strip().isin(_COHORT_EXCLUDE)]
+                     if not df.empty else df)
+    _excluded_n = (len(df) - len(df_cohort_src)) if not df.empty else 0
+
+    if df_cohort_src.empty:
+        st.info("No real customer data available after excluding walk-ins "
+                "and internal entries.")
     else:
+        if _excluded_n > 0:
+            st.caption(
+                f"<span style='color:#71717A;font-size:11px'>"
+                f"Cohort math excludes <b style='color:#A1A1AA'>"
+                f"{_excluded_n:,}</b> rows from <i>Walk-in</i> and "
+                f"<i>Fyxx Operations (B2C)</i> (anonymous / internal). "
+                f"Real customers tracked: "
+                f"{df_cohort_src['customer'].nunique():,}."
+                f"</span>",
+                unsafe_allow_html=True,
+            )
+
         # Compute first-purchase month per customer
-        first_order = df.groupby("customer")["dt_local"].min().reset_index()
+        first_order = df_cohort_src.groupby("customer")["dt_local"].min().reset_index()
         first_order["cohort"] = first_order["dt_local"].dt.to_period("M")
         # All orders, tagged with their customer's cohort
-        co = df.merge(first_order[["customer", "cohort"]], on="customer", how="left")
+        co = df_cohort_src.merge(first_order[["customer", "cohort"]], on="customer", how="left")
         co["order_period"] = co["dt_local"].dt.to_period("M")
         co["months_offset"] = (
             (co["order_period"] - co["cohort"]).apply(lambda p: p.n)
@@ -4443,10 +4470,14 @@ with tab_cohorts:
         avg_repeat = float(matrix.iloc[:, 1:].stack().mean()) if matrix.shape[1] > 1 else 0
         m1_repeat = float(matrix[1].mean()) if 1 in matrix.columns else 0
         total_customers = int(cohort_size.sum())
-        # New vs returning revenue in current scope
-        if not df_curr.empty:
-            df_c = df_curr.merge(first_order[["customer", "cohort"]],
-                                 on="customer", how="left")
+        # New vs returning revenue in current scope (still excluding walk-ins
+        # and internal entries, consistent with the cohort math)
+        df_curr_real = df_curr[~df_curr["customer"].astype(str).str.strip()
+                                .isin(_COHORT_EXCLUDE)] if not df_curr.empty else df_curr
+        if not df_curr_real.empty:
+            df_c = df_curr_real.merge(first_order[["customer", "cohort"]],
+                                      on="customer", how="left")
+            df_c = df_c[df_c["cohort"].notna()]
             df_c["order_period"] = df_c["dt_local"].dt.to_period("M")
             df_c["is_new"] = df_c["order_period"] == df_c["cohort"]
             new_rev = float(df_c[df_c["is_new"]]["amount_total"].sum())
@@ -4518,8 +4549,9 @@ with tab_cohorts:
         st.markdown("<div class='sec' style='margin-top:14px'>"
                     "<h3>New vs returning revenue · monthly</h3></div>",
                     unsafe_allow_html=True)
-        df_all = df.merge(first_order[["customer", "cohort"]],
-                          on="customer", how="left")
+        df_all = df_cohort_src.merge(first_order[["customer", "cohort"]],
+                                     on="customer", how="left")
+        df_all = df_all[df_all["cohort"].notna()]
         df_all["order_period"] = df_all["dt_local"].dt.to_period("M")
         df_all["is_new"] = df_all["order_period"] == df_all["cohort"]
         df_all["month_label"] = df_all["order_period"].astype(str)
@@ -4556,7 +4588,8 @@ with tab_cohorts:
                     "<h3>Customer revenue distribution</h3>"
                     "<div class='sec-sub'>How concentrated is revenue across customers?</div></div>",
                     unsafe_allow_html=True)
-        ltv = df.groupby("customer")["amount_total"].sum().sort_values(ascending=False)
+        ltv = (df_cohort_src.groupby("customer")["amount_total"].sum()
+               .sort_values(ascending=False))
         if not ltv.empty:
             ltv_med = float(ltv.median())
             ltv_p90 = float(ltv.quantile(0.9))
