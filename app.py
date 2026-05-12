@@ -1403,6 +1403,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "partner_id": partner_id,
             "salesperson": salesperson,
             "amount_total": o.get("amount_untaxed", 0.0),
+            "vat": float(o.get("amount_tax") or 0),
             "margin": float(o.get("margin") or 0),
             "date_order": o["date_order"],
             "state": o["state"],
@@ -1424,6 +1425,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
             "partner_id": partner_id,
             "salesperson": salesperson,
             "amount_total": net,
+            "vat": float(o.get("amount_tax") or 0),
             "margin": float(o.get("margin") or 0),
             "date_order": o["date_order"],
             "state": o["state"],
@@ -1442,7 +1444,7 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     if not rows:
         return pd.DataFrame(columns=[
             "name", "channel", "customer", "partner_id", "salesperson",
-            "amount_total", "margin", "date_order", "state", "source",
+            "amount_total", "vat", "margin", "date_order", "state", "source",
             "dt_local", "year", "month", "day",
         ])
     df = pd.DataFrame(rows)
@@ -2169,6 +2171,10 @@ years_with_data = [y for y in years_for_cards
 # =============================================================================
 curr_rev = float(df_curr["amount_total"].sum()) if not df_curr.empty else 0.0
 prev_rev = float(df_prev["amount_total"].sum()) if not df_prev.empty else 0.0
+curr_vat = float(df_curr["vat"].sum()) if not df_curr.empty and "vat" in df_curr.columns else 0.0
+prev_vat = float(df_prev["vat"].sum()) if not df_prev.empty and "vat" in df_prev.columns else 0.0
+curr_gross = curr_rev + curr_vat
+prev_gross = prev_rev + prev_vat
 curr_orders = len(df_curr)
 prev_orders = len(df_prev)
 curr_aov = curr_rev / curr_orders if curr_orders else 0
@@ -2289,19 +2295,28 @@ def kpi_card(label, value, sub_html="", foot="", spark=None, spark_color="#19E3B
     )
 
 
-# Daily sparklines for the 4 main KPIs (only when the period spans 2+ days)
-_spark_rev = _spark_orders = _spark_aov = _spark_cust = None
+# Daily sparklines for the 5 main KPIs (only when the period spans 2+ days)
+_spark_rev = _spark_gross = _spark_orders = _spark_aov = _spark_cust = None
 try:
     if not df_curr.empty and df_curr["day"].nunique() > 1:
+        _has_vat = "vat" in df_curr.columns
+        _agg_dict = {
+            "rev": ("amount_total", "sum"),
+            "orders": ("amount_total", "count"),
+            "cust": ("customer", pd.Series.nunique),
+        }
+        if _has_vat:
+            _agg_dict["vat"] = ("vat", "sum")
         _daily_kpi = (df_curr.groupby("day")
-                      .agg(rev=("amount_total", "sum"),
-                           orders=("amount_total", "count"),
-                           cust=("customer", pd.Series.nunique))
+                      .agg(**_agg_dict)
                       .sort_index()
                       .reset_index())
         _daily_kpi["aov"] = _daily_kpi.apply(
             lambda r: r["rev"] / r["orders"] if r["orders"] else 0, axis=1
         )
+        if _has_vat:
+            _daily_kpi["gross"] = _daily_kpi["rev"] + _daily_kpi["vat"]
+            _spark_gross = _daily_kpi["gross"].tolist()
         _spark_rev = _daily_kpi["rev"].tolist()
         _spark_orders = _daily_kpi["orders"].tolist()
         _spark_aov = _daily_kpi["aov"].tolist()
@@ -2311,11 +2326,20 @@ except Exception:
 
 kpi_html = "<div class='kpi-grid' style='margin-top:18px'>"
 kpi_html += kpi_card(
-    "Revenue (net of VAT)",
+    "Net Amount",
     fmt_money(curr_rev, CURRENCY, compact=True),
     delta_html(curr_rev, prev_rev, "vs prior period"),
     f"Prior: {fmt_money(prev_rev, CURRENCY, compact=True)}",
     spark=_spark_rev, spark_color="#19E3B6",
+)
+kpi_html += kpi_card(
+    "Net Amount + VAT",
+    fmt_money(curr_gross, CURRENCY, compact=True),
+    delta_html(curr_gross, prev_gross, "vs prior period"),
+    f"VAT: {fmt_money(curr_vat, CURRENCY, compact=True)}"
+    + (f" · Prior gross: {fmt_money(prev_gross, CURRENCY, compact=True)}"
+       if prev_gross else ""),
+    spark=_spark_gross, spark_color="#5FF5CB",
 )
 kpi_html += kpi_card(
     "Orders",
