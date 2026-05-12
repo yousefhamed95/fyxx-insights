@@ -1752,7 +1752,7 @@ st.markdown(
     "letter-spacing:0.18em'>Period</div>",
     unsafe_allow_html=True,
 )
-quick_options = ["Today", "MTD", "YTD", "Custom"]
+quick_options = ["Today", "Yesterday", "MTD", "YTD", "Custom"]
 try:
     scope = st.pills(
         "Scope", quick_options, default="Today",
@@ -1827,6 +1827,10 @@ def scope_window(scope, today, sel_years, custom_start, custom_end):
     if scope == "Today":
         y = today - timedelta(days=1)
         return today, today, y, y, "Today"
+    if scope == "Yesterday":
+        y = today - timedelta(days=1)
+        d2 = y - timedelta(days=1)
+        return y, y, d2, d2, "Yesterday"
     if scope == "MTD":
         # Month-to-Date: 1st of current month → today;
         # prior period is the same number of days in the previous month.
