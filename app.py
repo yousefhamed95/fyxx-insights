@@ -1721,12 +1721,14 @@ def _normalise_supplier(name):
     return name
 
 
-# Product-supplier lookup — read-only, cached.
+# Product-supplier lookup — reads the Studio custom field 'x_studio_vendor_tags'
+# (free-text vendor tag on the product's Sales tab). 72% coverage vs 13% for
+# the Purchase-tab seller_ids approach. Read-only, cached.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_product_suppliers(product_ids_tuple, _ttl_bucket):
-    """For each product, resolve its PRIMARY supplier (lowest-sequence
-    product.supplierinfo entry) and return dict pid -> supplier name.
-    Falls back to 'No supplier' on permission errors or missing data."""
+    """For each product, return dict pid -> vendor tag (string).
+    Reads `x_studio_vendor_tags` (custom Studio field on product.product).
+    Empty / missing → 'No vendor tag'. Aliases via _normalise_supplier()."""
     if not product_ids_tuple:
         return {}
     ids = [int(i) for i in product_ids_tuple if i]
@@ -1734,48 +1736,17 @@ def fetch_product_suppliers(product_ids_tuple, _ttl_bucket):
         return {}
     try:
         prods = kw("product.product", "read", [ids],
-                   {"fields": ["id", "seller_ids"]})
+                   {"fields": ["id", "x_studio_vendor_tags"]})
     except Exception:
         return {}
-    # Collect every unique product.supplierinfo id referenced
-    all_sinfo_ids = set()
-    for p in prods:
-        for sid in (p.get("seller_ids") or []):
-            all_sinfo_ids.add(sid)
-    sinfo_partner = {}
-    sinfo_seq = {}
-    if all_sinfo_ids:
-        # Newer Odoo (17+) renamed the supplier reference field from 'name' to 'partner_id'.
-        # Try the modern name first; fall back to 'name' for older instances.
-        sinfos = []
-        try:
-            sinfos = kw("product.supplierinfo", "read", [list(all_sinfo_ids)],
-                        {"fields": ["id", "partner_id", "sequence"]})
-            _partner_key = "partner_id"
-        except Exception:
-            try:
-                sinfos = kw("product.supplierinfo", "read", [list(all_sinfo_ids)],
-                            {"fields": ["id", "name", "sequence"]})
-                _partner_key = "name"
-            except Exception:
-                sinfos = []
-                _partner_key = None
-        for s in sinfos:
-            sinfo_seq[s["id"]] = int(s.get("sequence") or 10)
-            nm = s.get(_partner_key) if _partner_key else None
-            if isinstance(nm, list) and len(nm) > 1:
-                raw = nm[1]
-            else:
-                raw = str(nm) if nm else "Unknown"
-            sinfo_partner[s["id"]] = _normalise_supplier(raw)
     out = {}
     for p in prods:
-        sids = p.get("seller_ids") or []
-        if not sids:
-            out[p["id"]] = "No supplier"
-            continue
-        sids_sorted = sorted(sids, key=lambda x: sinfo_seq.get(x, 999))
-        out[p["id"]] = sinfo_partner.get(sids_sorted[0], "Unknown")
+        raw = p.get("x_studio_vendor_tags")
+        # The field is char-type; empty values come back as False or "" in Odoo
+        if not raw:
+            out[p["id"]] = "No vendor tag"
+        else:
+            out[p["id"]] = _normalise_supplier(str(raw).strip())
     return out
 
 
@@ -3143,9 +3114,9 @@ with tab_exec:
                 with st.spinner("Resolving suppliers..."):
                     _supplier_map = fetch_product_suppliers(_sup_pids, hist_bucket)
                 _sup_ldf["supplier"] = _sup_ldf["product_id"].map(
-                    lambda p: _supplier_map.get(int(p), "No supplier")
+                    lambda p: _supplier_map.get(int(p), "No vendor tag")
                               if (p is not None and not pd.isna(p))
-                              else "No supplier"
+                              else "No vendor tag"
                 )
                 sup_rev = (_sup_ldf.groupby("supplier")["revenue"]
                            .sum().sort_values(ascending=False))
