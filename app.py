@@ -1714,15 +1714,17 @@ SUPPLIER_ALIASES = (
     ("optico",          "UMG"),
     ("global brands",   "UMG"),
     ("tafaol",          "UMG"),
-    # 3) Other named vendors that the user highlights individually
-    ("bulos",           "Bulos"),
+    # 3) Other named vendors that the user highlights individually.
+    # Note: 'Bulos Y Zumot & Co. L.L.C' is displayed as 'Zumot' per user spec.
+    ("bulos",           "Zumot"),
+    ("zumot",           "Zumot"),
     ("arab italian",    "Arab Italian"),
     ("yhc",             "YHC"),
 )
 
 # Vendors that the Executive Summary donut highlights individually.
 # Anything else is bucketed into "Other".
-DONUT_SUPPLIER_HIGHLIGHT = ("UMG", "Fyxx", "Bulos", "Arab Italian", "YHC")
+DONUT_SUPPLIER_HIGHLIGHT = ("UMG", "Fyxx", "Zumot", "Arab Italian", "YHC")
 
 
 def _normalise_supplier(name):
@@ -1739,7 +1741,7 @@ def _normalise_supplier(name):
 # Bump this whenever SUPPLIER_ALIASES or the donut highlight list changes —
 # it forces st.cache_data to invalidate cached supplier resolution so the new
 # rules take effect immediately on next deploy instead of waiting for the TTL.
-SUPPLIER_RULES_VERSION = 3   # v3 = added Bulos / Arab Italian / YHC + donut filter
+SUPPLIER_RULES_VERSION = 4   # v4 = renamed Bulos display label to Zumot
 
 
 # Product-supplier lookup — reads the Studio custom field 'x_studio_vendor_tags'
@@ -3166,7 +3168,7 @@ with tab_exec:
                 _SUPPLIER_DONUT_COLORS = {
                     "UMG":          "#19E3B6",  # neon teal
                     "Fyxx":         "#F5B544",  # gold
-                    "Bulos":        "#A78BFA",  # violet
+                    "Zumot":        "#A78BFA",  # violet
                     "Arab Italian": "#38BDF8",  # sky blue
                     "YHC":          "#EC4899",  # rose
                     "Other":        "#52525B",  # muted grey
