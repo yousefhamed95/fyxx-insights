@@ -1699,6 +1699,28 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
     return out
 
 
+# Supplier-name aliases. Any partner whose lowercased name matches one of these
+# substrings is rolled up under a single canonical label. Keep keys lowercase.
+SUPPLIER_ALIASES = (
+    # All three of these are the same parent group → display as "UMG"
+    ("union marketing", "UMG"),
+    ("umg",             "UMG"),
+    ("optico",          "UMG"),
+    ("global brands",   "UMG"),
+)
+
+
+def _normalise_supplier(name):
+    """Apply SUPPLIER_ALIASES to a partner name. Returns the canonical label."""
+    if not name:
+        return name
+    low = str(name).strip().lower()
+    for needle, canonical in SUPPLIER_ALIASES:
+        if needle in low:
+            return canonical
+    return name
+
+
 # Product-supplier lookup — read-only, cached.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_product_suppliers(product_ids_tuple, _ttl_bucket):
@@ -1742,9 +1764,10 @@ def fetch_product_suppliers(product_ids_tuple, _ttl_bucket):
             sinfo_seq[s["id"]] = int(s.get("sequence") or 10)
             nm = s.get(_partner_key) if _partner_key else None
             if isinstance(nm, list) and len(nm) > 1:
-                sinfo_partner[s["id"]] = nm[1]
+                raw = nm[1]
             else:
-                sinfo_partner[s["id"]] = str(nm) if nm else "Unknown"
+                raw = str(nm) if nm else "Unknown"
+            sinfo_partner[s["id"]] = _normalise_supplier(raw)
     out = {}
     for p in prods:
         sids = p.get("seller_ids") or []
