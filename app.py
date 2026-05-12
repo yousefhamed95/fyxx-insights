@@ -1356,7 +1356,7 @@ def _is_internal_customer(name):
 
 
 # Bump this when the customer-exclusion rules change so the cache invalidates.
-DATA_FILTER_VERSION = 2   # v2 = also exclude 'JT International (Jordan) Ltd.'
+DATA_FILTER_VERSION = 3   # v3 = JT International filter actually applied (cache key fix)
 
 
 def resolve_channel_so(salesperson_name, company_name):
@@ -1589,10 +1589,13 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket,
 
 def load_dataframe(start_date, end_date, tz, ttl_bucket):
     start_utc, end_utc = _date_window_utc(start_date, end_date, tz)
+    # Pass DATA_FILTER_VERSION explicitly so it becomes part of the cache key —
+    # bumping the constant guarantees a fresh fetch on next render.
     rows = fetch_orders_window(
         start_utc.strftime("%Y-%m-%d %H:%M:%S"),
         end_utc.strftime("%Y-%m-%d %H:%M:%S"),
         ttl_bucket,
+        DATA_FILTER_VERSION,
     )
     if not rows:
         return pd.DataFrame(columns=[
