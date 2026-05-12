@@ -1699,10 +1699,16 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
     return out
 
 
-# Supplier-name aliases. Any partner whose lowercased name matches one of these
-# substrings is rolled up under a single canonical label. Keep keys lowercase.
+# Supplier-name aliases. Any partner whose lowercased name CONTAINS one of these
+# substrings is rolled up under a single canonical label. Iteration order matters
+# — earlier rules win. Keep keys lowercase.
 SUPPLIER_ALIASES = (
-    # All three of these are the same parent group → display as "UMG"
+    # 1) Anything with "Fyxx" in the vendor tag is the Fyxx house brand —
+    #    consolidates "Fyxx | Les Caves de Pyrene", "Fyxx x UMG Bundles",
+    #    "Fyxx Operations", etc. into ONE bucket called "Fyxx".
+    ("fyxx",            "Fyxx"),
+    # 2) Otherwise, Union Marketing / OPTICO / Global Brands / standalone UMG
+    #    all roll up to UMG.
     ("union marketing", "UMG"),
     ("umg",             "UMG"),
     ("optico",          "UMG"),
