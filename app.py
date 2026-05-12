@@ -2144,24 +2144,11 @@ def year_card_slice(d, year, today, cs, ce):
     return d[(d["day"] >= ws) & (d["day"] <= we)]
 
 
-# Build year cards but skip years that have no data in the active window
-# (e.g. years before the business started or future years not yet realised).
+# Year-performance cards removed by request.
+# We still compute `years_with_data` because several multi-year charts
+# (YTD trajectory, Monthly YoY, Channel × year) rely on it to know which
+# year lines to actually draw.
 years_for_cards = sorted(selected_years)
-year_card_payload = []
-for y in years_for_cards:
-    d_y = year_card_slice(df, y, today_local, curr_start, curr_end)
-    if d_y.empty:
-        continue
-    is_current = (y == today_local.year)
-    d_prev = year_card_slice(df, y - 1, today_local, curr_start, curr_end)
-    year_card_payload.append(year_card(y, d_y, d_prev, scope_label, is_current))
-
-if year_card_payload:
-    cards_html = (["<div class='kpi-grid' style='margin-bottom:6px'>"]
-                  + year_card_payload + ["</div>"])
-    st.markdown("\n".join(cards_html), unsafe_allow_html=True)
-# Track which years actually contributed data, so multi-year charts only
-# render lines that exist (no flat zero traces cluttering the legend).
 years_with_data = [y for y in years_for_cards
                    if not df[df["year"] == y].empty]
 
