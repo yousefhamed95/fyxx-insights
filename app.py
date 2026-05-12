@@ -1398,6 +1398,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
         salesperson = o["user_id"][1] if o.get("user_id") else "—"
         rows.append({
             "name": o["name"],
+            "order_id": o.get("id"),
             "channel": resolve_channel_so(warehouse_name, team_name),
             "customer": customer,
             "partner_id": partner_id,
@@ -1420,6 +1421,7 @@ def fetch_orders_window(start_iso, end_iso, _ttl_bucket):
         net = (o.get("amount_total") or 0) - (o.get("amount_tax") or 0)
         rows.append({
             "name": o["name"],
+            "order_id": o.get("id"),
             "channel": channel,
             "customer": customer,
             "partner_id": partner_id,
@@ -1443,9 +1445,9 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     )
     if not rows:
         return pd.DataFrame(columns=[
-            "name", "channel", "customer", "partner_id", "salesperson",
-            "amount_total", "vat", "margin", "date_order", "state", "source",
-            "dt_local", "year", "month", "day",
+            "name", "order_id", "channel", "customer", "partner_id",
+            "salesperson", "amount_total", "vat", "margin", "date_order",
+            "state", "source", "dt_local", "year", "month", "day",
         ])
     df = pd.DataFrame(rows)
     df["dt_local"] = df["date_order"].apply(lambda s: _to_local_dt(s, tz))
@@ -2763,30 +2765,83 @@ with tab_exec:
             st.info("No data in selected window.")
 
     with c2:
-        st.markdown("<div class='sec'><h3>Revenue mix by channel</h3>"
-                    f"<div class='sec-sub'>{scope_label}</div></div>",
+        st.markdown("<div class='sec'><h3>Revenue by product category</h3>"
+                    f"<div class='sec-sub'>{scope_label} · sub-category mix</div></div>",
                     unsafe_allow_html=True)
-        if not df_curr.empty:
-            by_ch = (df_curr.groupby("channel")["amount_total"].sum()
-                     .sort_values(ascending=False).reset_index())
-            fig = go.Figure(data=[go.Pie(
-                labels=by_ch["channel"], values=by_ch["amount_total"],
-                hole=0.7,
-                texttemplate="%{value:,.0f}<br>%{percent}",
-                marker=dict(colors=channel_colors_for(by_ch["channel"]),
-                            line=dict(color=PALETTE["surface"], width=3)),
-                hovertemplate="<b>%{label}</b><br>"
-                              "%{value:,.0f} " + CURRENCY +
-                              "<br>%{percent}<extra></extra>",
-                textfont=dict(size=11, color=PALETTE["text"]),
-            )])
-            fig.update_layout(annotations=[dict(
-                text=f"<b>{fmt_money(curr_rev, CURRENCY, compact=True)}</b>"
-                     f"<br><span style='font-size:10px;color:#A1A1AA'>Total</span>",
-                showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
-            st.plotly_chart(style_fig(fig, height=340), use_container_width=True)
-        else:
+        if df_curr.empty:
             st.info("No data in selected window.")
+        else:
+            # Pull order lines for the active scope (cached), filter to
+            # the channel-filtered orders in df_curr, then aggregate by
+            # product sub-category (Wine, Whisky, Cigars, Food Menu Items, ...)
+            _ex_start_utc, _ex_end_utc = _date_window_utc(curr_start, curr_end, TZ)
+            try:
+                _ex_lines = fetch_order_lines_window(
+                    _ex_start_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                    _ex_end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                    hist_bucket,
+                )
+            except Exception:
+                _ex_lines = []
+            if not _ex_lines:
+                st.info("Product line data unavailable for this window.")
+            else:
+                _ex_ldf = pd.DataFrame(_ex_lines)
+                # Keep only lines whose (source, order_id) is in df_curr
+                _allowed = set(zip(
+                    df_curr["source"].astype(str),
+                    df_curr["order_id"].fillna(-1).astype(int),
+                ))
+                _ex_ldf = _ex_ldf[_ex_ldf.apply(
+                    lambda r: (r["source"], int(r["order_id"]) if pd.notna(r["order_id"]) else -1)
+                              in _allowed,
+                    axis=1,
+                )]
+                if _ex_ldf.empty:
+                    st.info("No product line data for the active channel selection.")
+                else:
+                    # Resolve categories
+                    _ex_pids = tuple(sorted({
+                        int(p) for p in _ex_ldf["product_id"].dropna().tolist()
+                    }))
+                    _ex_cats = fetch_product_categories(_ex_pids, hist_bucket)
+                    _ex_ldf["subcategory"] = _ex_ldf["product_id"].map(
+                        lambda p: (_ex_cats.get(int(p), {}).get("subcategory", "—") or "—")
+                                  if (p is not None and not pd.isna(p)) else "—"
+                    )
+                    cat_rev = (_ex_ldf.groupby("subcategory")["revenue"]
+                               .sum().sort_values(ascending=False))
+                    # Keep top 8 categories, bucket the rest into "Other"
+                    if len(cat_rev) > 8:
+                        top8 = cat_rev.head(8)
+                        other_total = cat_rev.iloc[8:].sum()
+                        cat_rev = pd.concat(
+                            [top8, pd.Series({"Other": other_total})]
+                        )
+                    total_cat_rev = float(cat_rev.sum())
+                    cat_palette = [
+                        "#19E3B6", "#F5B544", "#A78BFA", "#38BDF8",
+                        "#EC4899", "#22C55E", "#FBBF24", "#F87171",
+                        "#52525B",
+                    ]
+                    fig = go.Figure(data=[go.Pie(
+                        labels=cat_rev.index.tolist(),
+                        values=cat_rev.values.tolist(),
+                        hole=0.7,
+                        texttemplate="%{value:,.0f}<br>%{percent}",
+                        marker=dict(colors=cat_palette[:len(cat_rev)],
+                                    line=dict(color=PALETTE["surface"], width=3)),
+                        hovertemplate="<b>%{label}</b><br>"
+                                      "%{value:,.0f} " + CURRENCY +
+                                      "<br>%{percent}<extra></extra>",
+                        textfont=dict(size=11, color=PALETTE["text"]),
+                    )])
+                    fig.update_layout(annotations=[dict(
+                        text=f"<b>{fmt_money(total_cat_rev, CURRENCY, compact=True)}</b>"
+                             f"<br><span style='font-size:10px;color:#A1A1AA'>Categories</span>",
+                        showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
+                    st.plotly_chart(style_fig(fig, height=340),
+                                    use_container_width=True)
 
 
 # -------- Pacing & Forecast --------
