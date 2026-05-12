@@ -536,6 +536,11 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 
 /* KPI cards (custom — richer than st.metric) */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+/* Main KPI strip — force all 6 cards into one row on wide screens */
+.kpi-strip-main { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+@media (min-width: 1100px) {
+    .kpi-strip-main { grid-template-columns: repeat(6, 1fr) !important; }
+}
 .kpi-spark-row {
     margin-top: 10px;
     height: 30px;
@@ -2288,7 +2293,7 @@ try:
 except Exception:
     pass
 
-kpi_html = "<div class='kpi-grid' style='margin-top:18px'>"
+kpi_html = "<div class='kpi-grid kpi-strip-main' style='margin-top:18px'>"
 kpi_html += kpi_card(
     "Net Amount",
     fmt_money(curr_rev, CURRENCY, compact=True),
