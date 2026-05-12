@@ -1736,14 +1736,23 @@ def _normalise_supplier(name):
     return name
 
 
+# Bump this whenever SUPPLIER_ALIASES or the donut highlight list changes —
+# it forces st.cache_data to invalidate cached supplier resolution so the new
+# rules take effect immediately on next deploy instead of waiting for the TTL.
+SUPPLIER_RULES_VERSION = 3   # v3 = added Bulos / Arab Italian / YHC + donut filter
+
+
 # Product-supplier lookup — reads the Studio custom field 'x_studio_vendor_tags'
 # (free-text vendor tag on the product's Sales tab). 72% coverage vs 13% for
 # the Purchase-tab seller_ids approach. Read-only, cached.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
-def fetch_product_suppliers(product_ids_tuple, _ttl_bucket):
+def fetch_product_suppliers(product_ids_tuple, _ttl_bucket,
+                             _rules_version=SUPPLIER_RULES_VERSION):
     """For each product, return dict pid -> vendor tag (string).
     Reads `x_studio_vendor_tags` (custom Studio field on product.product).
-    Empty / missing → 'No vendor tag'. Aliases via _normalise_supplier()."""
+    Empty / missing → 'No vendor tag'. Aliases via _normalise_supplier().
+    The _rules_version arg is purely for cache invalidation — bumping
+    SUPPLIER_RULES_VERSION at the top forces a fresh fetch on next render."""
     if not product_ids_tuple:
         return {}
     ids = [int(i) for i in product_ids_tuple if i]
