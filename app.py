@@ -3035,6 +3035,10 @@ with tab_exec:
                             if "wine" in s:
                                 return "Wine BTG"
                             return "Spirits BTG"
+                        # 'Tasting Cards' = "By The Glass Card Top-Up" SKUs;
+                        # per user spec these roll into the Wine BTG bucket.
+                        if "tasting card" in s:
+                            return "Wine BTG"
                         if s in ("wine", "wines"):
                             return "Wines"
                         if s == "spirits":
