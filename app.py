@@ -3210,52 +3210,6 @@ with tab_profit:
                 showarrow=False, font=dict(size=14, color=PALETTE["text"]))])
             st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
 
-        # ---- Profit trend over time ----
-        st.markdown("<div class='sec' style='margin-top:14px'>"
-                    "<h3>Profit and margin trend</h3>"
-                    f"<div class='sec-sub'>{scope_label} · daily gross profit "
-                    "(bars) and rolling 7-day margin % (line)</div></div>",
-                    unsafe_allow_html=True)
-        if len(df_curr) > 0:
-            daily = (df_curr.groupby("day")
-                     .agg(rev=("amount_total", "sum"),
-                          prof=("margin", "sum"),
-                          n=("amount_total", "count"))
-                     .sort_index().reset_index())
-            daily["gm"] = daily.apply(
-                lambda r: r["prof"] / r["rev"] * 100 if r["rev"] else 0, axis=1
-            )
-            daily["gm_roll"] = daily["gm"].rolling(7, min_periods=1).mean()
-
-            from plotly.subplots import make_subplots
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            show_lbl = len(daily) <= 45
-            fig.add_trace(go.Bar(
-                x=daily["day"], y=daily["prof"],
-                name="Daily profit",
-                marker=dict(color="#19E3B6", line=dict(width=0)),
-                text=daily["prof"] if show_lbl else None,
-                texttemplate="%{text:,.0f}" if show_lbl else None,
-                textposition="outside",
-                textfont=dict(color=PALETTE["text_dim"], size=10),
-                cliponaxis=False,
-                hovertemplate="<b>%{x|%d %b}</b><br>Profit: %{y:,.0f} " + CURRENCY +
-                              "<extra></extra>",
-            ), secondary_y=False)
-            fig.add_trace(go.Scatter(
-                x=daily["day"], y=daily["gm_roll"],
-                name="7-day margin %",
-                mode="lines",
-                line=dict(color="#F5B544", width=2.5, shape="spline"),
-                hovertemplate="<b>%{x|%d %b}</b><br>Margin %{y:.1f}%<extra></extra>",
-            ), secondary_y=True)
-            fig.update_yaxes(title=None, secondary_y=False)
-            fig.update_yaxes(title="margin %", secondary_y=True,
-                             range=[0, max(80, daily["gm_roll"].max() * 1.1) if not daily.empty else 100],
-                             gridcolor=PALETTE["border"], showgrid=False,
-                             tickfont=dict(color="#F5B544", size=11))
-            st.plotly_chart(style_fig(fig, height=340), use_container_width=True)
-
         # ---- Per-channel detail table ----
         st.markdown("<div class='sec' style='margin-top:14px'>"
                     "<h3>Channel profitability detail</h3></div>",
