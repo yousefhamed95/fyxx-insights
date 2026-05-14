@@ -1262,6 +1262,31 @@ def check_password():
         )
         pw = st.text_input("Password", type="password", key="pw_input",
                            label_visibility="collapsed", placeholder="Password")
+        # Force the on-screen numeric keypad on mobile for the password field.
+        from streamlit.components.v1 import html as _pw_components_html
+        _pw_components_html(
+            """
+            <script>
+            (function () {
+              const apply = () => {
+                try {
+                  const doc = window.parent.document;
+                  doc.querySelectorAll('input[type="password"]').forEach((el) => {
+                    el.setAttribute('inputmode', 'numeric');
+                    el.setAttribute('pattern', '[0-9]*');
+                    el.setAttribute('autocomplete', 'one-time-code');
+                  });
+                } catch (e) {}
+              };
+              apply();
+              setTimeout(apply, 150);
+              setTimeout(apply, 600);
+              setTimeout(apply, 1500);
+            })();
+            </script>
+            """,
+            height=0,
+        )
         if st.button("Continue", use_container_width=True):
             if hmac.compare_digest(pw or "", DASHBOARD_PASSWORD):
                 st.session_state["auth_ok"] = True
