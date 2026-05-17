@@ -1720,6 +1720,60 @@ def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
     return rows
 
 
+# Expense / P&L data — pulls aggregated GL balances per expense account.
+# Read-only, cached. Used by the P&L tab.
+@st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
+def fetch_expense_balances(start_date_iso, end_date_iso, _ttl_bucket):
+    """Return a list of dicts: one per expense-flavoured account, with the
+    debit/credit/balance posted to it within the date range.
+    Reads `account.account` + `account.move.line`, posted entries only."""
+    try:
+        accs = kw("account.account", "search_read", [[]],
+                  {"fields": ["id", "name", "code", "account_type"],
+                   "limit": 5000})
+    except Exception:
+        return []
+    exp_accs = [a for a in accs
+                if "expense" in str(a.get("account_type") or "").lower()]
+    if not exp_accs:
+        return []
+    exp_acc_ids = [a["id"] for a in exp_accs]
+
+    try:
+        lines = kw("account.move.line", "search_read",
+                   [[["account_id", "in", exp_acc_ids],
+                     ["date", ">=", start_date_iso],
+                     ["date", "<=", end_date_iso],
+                     ["parent_state", "=", "posted"]]],
+                   {"fields": ["account_id", "debit", "credit"],
+                    "limit": 200000})
+    except Exception:
+        lines = []
+
+    from collections import defaultdict
+    sums = defaultdict(lambda: {"debit": 0.0, "credit": 0.0})
+    for l in lines:
+        if not l.get("account_id"):
+            continue
+        aid = l["account_id"][0]
+        sums[aid]["debit"] += float(l.get("debit") or 0)
+        sums[aid]["credit"] += float(l.get("credit") or 0)
+
+    out = []
+    for a in exp_accs:
+        b = sums.get(a["id"], {"debit": 0.0, "credit": 0.0})
+        out.append({
+            "id": a["id"],
+            "code": a.get("code") or "",
+            "name": a.get("name") or "",
+            "type": a.get("account_type") or "",
+            "debit": b["debit"],
+            "credit": b["credit"],
+            "balance": b["debit"] - b["credit"],
+        })
+    return out
+
+
 # Product-category lookup — read-only, cached. Returns dict id -> info.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_product_categories(product_ids_tuple, _ttl_bucket):
@@ -2641,13 +2695,14 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-(tab_brief, tab_exec, tab_pace, tab_profit, tab_sku, tab_loss, tab_alerts,
- tab_trends, tab_channels, tab_customers, tab_cohorts,
+(tab_brief, tab_exec, tab_pace, tab_profit, tab_pnl, tab_sku, tab_loss,
+ tab_alerts, tab_trends, tab_channels, tab_customers, tab_cohorts,
  tab_compare, tab_recent) = st.tabs(
     ["  ◆  Brief  ", "  ❖  Executive Summary  ", "  ▲  Pacing  ",
-     "  ◯  Profitability  ", "  ❒  Products  ", "  ※  Loss Orders  ",
-     "  ⚑  Alerts  ", "  ⌁  Trends  ", "  ⌬  Channels  ", "  ◐  Customers  ",
-     "  ⟳  Cohorts  ", "  ⇋  Compare  ", "  ●  Live  "]
+     "  ◯  Profitability  ", "  Σ  P&L  ", "  ❒  Products  ",
+     "  ※  Loss Orders  ", "  ⚑  Alerts  ", "  ⌁  Trends  ",
+     "  ⌬  Channels  ", "  ◐  Customers  ", "  ⟳  Cohorts  ",
+     "  ⇋  Compare  ", "  ●  Live  "]
 )
 
 
@@ -3741,6 +3796,319 @@ with tab_profit:
                     "value_str": fmt_money(r["prof"], CURRENCY, compact=True),
                 })
             st.markdown(render_leaderboard(_rows_s), unsafe_allow_html=True)
+
+
+# -------- Profit & Loss Statement --------
+def _pnl_category_of(name, code):
+    """Bucket an Odoo expense account into a P&L category."""
+    n = (name or "").lower()
+    # Many accounts use 'Parent:Child' naming — take the parent as the bucket.
+    parent = n.split(":")[0].strip()
+    if parent:
+        return parent.title()
+    return name or "Other"
+
+
+with tab_pnl:
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec'><h3>Profit &amp; Loss Statement</h3>"
+        f"<div class='sec-sub'>{scope_label} · "
+        "live from Odoo GL · OpEx figures reflect everything posted to "
+        "expense accounts company-wide</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "<span style='color:#71717A;font-size:11px'>"
+        "Revenue, COGS, and Gross Profit are channel-filtered. "
+        "OpEx categories are <b>company-wide</b> (not channel-attributable). "
+        "Lines with zero balance are hidden."
+        "</span>",
+        unsafe_allow_html=True,
+    )
+
+    # --- Date strings (account.move.line.date is a Date field — YYYY-MM-DD) ---
+    _pnl_curr_start_iso = curr_start.strftime("%Y-%m-%d")
+    _pnl_curr_end_iso = curr_end.strftime("%Y-%m-%d")
+    _pnl_prev_start_iso = prev_start.strftime("%Y-%m-%d")
+    _pnl_prev_end_iso = prev_end.strftime("%Y-%m-%d")
+
+    # --- Revenue & COGS (from existing channel-filtered df) ---
+    pnl_rev_curr = float(df_curr["amount_total"].sum()) if not df_curr.empty else 0.0
+    pnl_rev_prev = float(df_prev["amount_total"].sum()) if not df_prev.empty else 0.0
+    pnl_gp_curr = (float(df_curr["margin"].sum())
+                   if not df_curr.empty and "margin" in df_curr.columns else 0.0)
+    pnl_gp_prev = (float(df_prev["margin"].sum())
+                   if not df_prev.empty and "margin" in df_prev.columns else 0.0)
+    pnl_cogs_curr = pnl_rev_curr - pnl_gp_curr
+    pnl_cogs_prev = pnl_rev_prev - pnl_gp_prev
+
+    # --- Fetch expense balances from Odoo GL ---
+    with st.spinner("Loading expense ledger..."):
+        exp_curr = fetch_expense_balances(_pnl_curr_start_iso, _pnl_curr_end_iso, hist_bucket)
+        exp_prev = fetch_expense_balances(_pnl_prev_start_iso, _pnl_prev_end_iso, hist_bucket)
+
+    # Build {category -> total balance} from the GL. We INTENTIONALLY skip
+    # accounts whose name looks like a 'Cost of Goods Sold' variant — those
+    # are already captured by margin-based COGS on the Revenue half.
+    def _is_cogs_account(name):
+        n = (name or "").lower()
+        return "cost of goods sold" in n or "cogs" in n
+
+    def _group_opex(rows):
+        from collections import defaultdict
+        groups = defaultdict(float)
+        for r in rows:
+            if _is_cogs_account(r["name"]):
+                continue
+            if r["type"] == "expense_direct_cost":
+                continue  # COGS-flavoured, skip
+            if abs(r["balance"]) < 0.01:
+                continue
+            cat = _pnl_category_of(r["name"], r["code"])
+            groups[cat] += r["balance"]
+        return dict(groups)
+
+    def _depreciation_total(rows):
+        # Pull anything tagged 'expense_depreciation'
+        return sum(r["balance"] for r in rows
+                   if r["type"] == "expense_depreciation"
+                   and abs(r["balance"]) > 0.01)
+
+    opex_curr = _group_opex(exp_curr)
+    opex_prev = _group_opex(exp_prev)
+    dep_curr = _depreciation_total(exp_curr)
+    dep_prev = _depreciation_total(exp_prev)
+
+    total_opex_curr = sum(opex_curr.values())
+    total_opex_prev = sum(opex_prev.values())
+    ebitda_curr = pnl_gp_curr - total_opex_curr
+    ebitda_prev = pnl_gp_prev - total_opex_prev
+    ebit_curr = ebitda_curr - dep_curr
+    ebit_prev = ebitda_prev - dep_prev
+
+    def _gm_pct(profit, rev):
+        return (profit / rev * 100) if rev else 0.0
+
+    def _pct_delta(c, p):
+        if not p:
+            return None
+        return (c - p) / p * 100
+
+    def _fmt_num(x):
+        return f"{x:,.0f}"
+
+    def _fmt_delta(c, p, unit="%"):
+        d = _pct_delta(c, p)
+        if d is None:
+            return "<span style='color:#71717A'>—</span>"
+        cls = "kpi-delta-up" if d >= 0 else "kpi-delta-dn"
+        sign = "▲" if d >= 0 else "▼"
+        return (f"<span class='{cls}'>{sign} {abs(d):.1f}%</span>")
+
+    # --- Render P&L table as styled HTML ---
+    css_seed = """
+    <style>
+    .pnl-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+        margin-top: 14px;
+        background: linear-gradient(160deg, #131318 0%, #0E0E13 100%);
+        border: 1px solid #23232B;
+        border-radius: 14px;
+        overflow: hidden;
+    }
+    .pnl-table th, .pnl-table td {
+        padding: 11px 18px;
+        text-align: right;
+        color: #D4D4D8;
+        font-size: 13px;
+        border-bottom: 1px solid #1A1A20;
+    }
+    .pnl-table th { color: #71717A; text-transform: uppercase;
+                    letter-spacing: 0.12em; font-size: 10.5px;
+                    font-weight: 700; background: #16161B;
+                    border-bottom: 1px solid #23232B; }
+    .pnl-table th:first-child, .pnl-table td:first-child {
+        text-align: left;
+    }
+    .pnl-row-label { color: #F4F4F5; }
+    .pnl-sub-label { color: #A1A1AA; padding-left: 24px !important; font-weight: 400; }
+    .pnl-total {
+        background: rgba(25,227,182,0.04);
+        font-weight: 700;
+    }
+    .pnl-total td { color: #F4F4F5 !important; border-top: 1px solid #2A2A33; }
+    .pnl-bottom {
+        background: rgba(25,227,182,0.10);
+    }
+    .pnl-bottom td { color: #19E3B6 !important; font-weight: 800; font-size: 15px; }
+    .pnl-neg { color: #F87171; }
+    </style>
+    """
+    st.markdown(css_seed, unsafe_allow_html=True)
+
+    def _row(label, c_val, p_val, *, is_neg=False, css_class="", sub=False):
+        delta = _fmt_delta(c_val, p_val) if p_val or c_val else "—"
+        label_cls = "pnl-sub-label" if sub else "pnl-row-label"
+        c_str = f"({_fmt_num(abs(c_val))})" if is_neg else _fmt_num(c_val)
+        p_str = f"({_fmt_num(abs(p_val))})" if is_neg else _fmt_num(p_val)
+        neg_cls = "pnl-neg" if is_neg else ""
+        return (
+            f"<tr class='{css_class}'>"
+            f"<td class='{label_cls}'>{label}</td>"
+            f"<td class='{neg_cls}'>{c_str}</td>"
+            f"<td class='{neg_cls}'>{p_str}</td>"
+            f"<td>{delta}</td>"
+            f"</tr>"
+        )
+
+    table_html = ["<table class='pnl-table'>"]
+    table_html.append(
+        f"<thead><tr><th>Line Item</th>"
+        f"<th>{scope_label} ({CURRENCY})</th>"
+        f"<th>Prior period ({CURRENCY})</th>"
+        f"<th>Δ %</th></tr></thead><tbody>"
+    )
+    # Revenue
+    table_html.append(_row("Revenue (net of VAT)", pnl_rev_curr, pnl_rev_prev,
+                           css_class="pnl-total"))
+    table_html.append(_row("Cost of Goods Sold", pnl_cogs_curr, pnl_cogs_prev,
+                           is_neg=True))
+    # Gross Profit
+    table_html.append(_row("Gross Profit", pnl_gp_curr, pnl_gp_prev,
+                           css_class="pnl-total"))
+    gm_curr = _gm_pct(pnl_gp_curr, pnl_rev_curr)
+    gm_prev = _gm_pct(pnl_gp_prev, pnl_rev_prev)
+    ppt_delta = gm_curr - gm_prev
+    ppt_cls = "kpi-delta-up" if ppt_delta >= 0 else "kpi-delta-dn"
+    ppt_sign = "▲" if ppt_delta >= 0 else "▼"
+    ppt_html = (f"<span class='{ppt_cls}'>{ppt_sign} {abs(ppt_delta):.1f} ppt</span>"
+                if pnl_rev_prev else "<span style='color:#71717A'>—</span>")
+    table_html.append(
+        f"<tr><td class='pnl-sub-label'><i>Gross Margin %</i></td>"
+        f"<td><i>{gm_curr:.1f}%</i></td>"
+        f"<td><i>{gm_prev:.1f}%</i></td>"
+        f"<td>{ppt_html}</td></tr>"
+    )
+
+    # Spacer row
+    table_html.append(
+        "<tr><td colspan='4' style='height:8px;background:#0E0E13;"
+        "border-bottom:1px solid #2A2A33'></td></tr>"
+    )
+    # Operating Expenses header
+    table_html.append(
+        "<tr><td class='pnl-row-label' style='color:#A78BFA;"
+        "text-transform:uppercase;letter-spacing:0.10em;font-size:11px;"
+        "font-weight:700' colspan='4'>Operating Expenses</td></tr>"
+    )
+
+    # Sort OpEx categories by absolute current-period spend
+    all_cats = sorted(set(list(opex_curr.keys()) + list(opex_prev.keys())),
+                      key=lambda c: -abs(opex_curr.get(c, 0)))
+    if not all_cats:
+        table_html.append(
+            "<tr><td colspan='4' class='pnl-sub-label' style='color:#71717A'>"
+            "<i>No operating expenses posted to Odoo for this period. "
+            "OpEx values will appear here as the accounting team posts them.</i>"
+            "</td></tr>"
+        )
+    for cat in all_cats:
+        c_val = opex_curr.get(cat, 0)
+        p_val = opex_prev.get(cat, 0)
+        table_html.append(_row(cat, c_val, p_val, is_neg=True, sub=True))
+
+    # Total OpEx
+    table_html.append(_row("Total OpEx", total_opex_curr, total_opex_prev,
+                           is_neg=True, css_class="pnl-total"))
+
+    # EBITDA
+    table_html.append(_row("EBITDA", ebitda_curr, ebitda_prev,
+                           css_class="pnl-total"))
+
+    # Depreciation
+    if abs(dep_curr) > 0.01 or abs(dep_prev) > 0.01:
+        table_html.append(_row("Depreciation & Amortisation", dep_curr, dep_prev,
+                               is_neg=True, sub=True))
+
+    # EBIT / Net Income (without tax/interest data we approximate as EBIT)
+    table_html.append(_row("EBIT (Operating Income)", ebit_curr, ebit_prev,
+                           css_class="pnl-bottom"))
+
+    table_html.append("</tbody></table>")
+    st.markdown("\n".join(table_html), unsafe_allow_html=True)
+
+    # --- Visual: OpEx breakdown (horizontal bar) ---
+    st.markdown(
+        "<div class='sec' style='margin-top:18px'><h3>Operating expenses · breakdown</h3>"
+        "<div class='sec-sub'>Posted to Odoo this period — top categories</div></div>",
+        unsafe_allow_html=True,
+    )
+    if not opex_curr:
+        st.info("No OpEx posted for this period.")
+    else:
+        op_items = sorted(opex_curr.items(), key=lambda x: -x[1])
+        labels = [c for c, _ in op_items]
+        values = [v for _, v in op_items]
+        fig = go.Figure(go.Bar(
+            x=values[::-1], y=labels[::-1], orientation="h",
+            marker=dict(color=values[::-1],
+                        colorscale=[[0, "#0E5A4A"], [1, "#F87171"]],
+                        line=dict(width=0)),
+            text=values[::-1], texttemplate="%{text:,.0f}",
+            textposition="outside",
+            textfont=dict(color=PALETTE["text_dim"], size=10),
+            cliponaxis=False,
+            hovertemplate="<b>%{y}</b><br>%{x:,.0f} " + CURRENCY + "<extra></extra>",
+        ))
+        st.plotly_chart(style_fig(fig, height=max(300, len(labels) * 26 + 80),
+                                  show_legend=False),
+                        use_container_width=True)
+
+    # --- Detailed account-level table (drill-down) ---
+    st.markdown(
+        "<div class='sec' style='margin-top:18px'><h3>Detailed account ledger</h3>"
+        "<div class='sec-sub'>Every expense account with a non-zero balance · sortable</div></div>",
+        unsafe_allow_html=True,
+    )
+    detail_rows = []
+    for r in exp_curr:
+        if abs(r["balance"]) < 0.01:
+            continue
+        prev_bal = next((p["balance"] for p in exp_prev if p["id"] == r["id"]), 0)
+        detail_rows.append({
+            "Code": r["code"],
+            "Account": r["name"],
+            "Type": r["type"],
+            f"Period ({CURRENCY})": r["balance"],
+            f"Prior ({CURRENCY})": prev_bal,
+            "Δ %": ((r["balance"] - prev_bal) / prev_bal * 100) if prev_bal else None,
+        })
+    if detail_rows:
+        det_df = pd.DataFrame(detail_rows).sort_values(
+            f"Period ({CURRENCY})", ascending=False
+        )
+        _max_pnl_amt = det_df[f"Period ({CURRENCY})"].max() or 1
+        st.dataframe(
+            det_df, use_container_width=True, hide_index=True, height=420,
+            column_config={
+                f"Period ({CURRENCY})": st.column_config.ProgressColumn(
+                    f"Period ({CURRENCY})", format="%,.0f",
+                    min_value=0, max_value=float(_max_pnl_amt)),
+                f"Prior ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
+                "Δ %": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+    else:
+        st.caption(
+            "<span style='color:#71717A;font-size:11.5px'>"
+            "Every expense account is at zero for this period — the GL "
+            "doesn't have OpEx postings yet."
+            "</span>",
+            unsafe_allow_html=True,
+        )
 
 
 # -------- Products / SKUs --------
