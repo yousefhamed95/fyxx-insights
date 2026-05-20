@@ -1167,8 +1167,9 @@ EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 CHANNEL_COLORS = {
     "E-com":      "#19E3B6",  # primary neon
     "Retail":     "#38BDF8",  # sky blue
-    "TGR": "#A78BFA",  # violet (hospitality / dine-in)
+    "TGR":        "#A78BFA",  # violet (hospitality / dine-in)
     "B2B":        "#F5B544",  # amber/gold (high-AOV wholesale)
+    "JDFS":       "#EC4899",  # rose — Jordanian Duty Free Shops
 }
 
 
@@ -1376,6 +1377,26 @@ _EXCLUDED_CUSTOMER_KEYWORDS = (
 )
 
 
+# Customer-name patterns that get their own dedicated channel, overriding
+# the salesperson/company-based classification. Substring match, case-insensitive.
+_CUSTOMER_CHANNEL_OVERRIDES = (
+    # Jordanian Duty Free Shops → its own 'JDFS' channel
+    (("jordanian duty free", "duty free shops"), "JDFS"),
+)
+
+
+def _customer_channel_override(name):
+    """Return a channel label if the customer name matches an override
+    pattern, otherwise None (so the default channel logic stays in effect)."""
+    if not name:
+        return None
+    low = str(name).strip().lower()
+    for keywords, channel in _CUSTOMER_CHANNEL_OVERRIDES:
+        if any(k in low for k in keywords):
+            return channel
+    return None
+
+
 def _is_internal_customer(name):
     """True if this customer name represents an internal / non-real entry
     that should be excluded from sales aggregations."""
@@ -1386,7 +1407,7 @@ def _is_internal_customer(name):
 
 
 # Bump this when the customer-exclusion rules change so the cache invalidates.
-DATA_FILTER_VERSION = 4   # v4 = renamed 'Green Room' channel to 'TGR'
+DATA_FILTER_VERSION = 5   # v5 = JDFS customer-based channel override
 
 
 def resolve_channel_so(salesperson_name, company_name):
@@ -1612,6 +1633,13 @@ def fetch_orders_window_v5(start_iso, end_iso, _ttl_bucket,
     # Global customer filter: exclude internal/self-purchase entries
     # (currently: any customer name containing 'Fyxx Operations')
     rows = [r for r in rows if not _is_internal_customer(r.get("customer"))]
+    # Customer-name channel overrides (e.g. Jordanian Duty Free Shops → JDFS).
+    # Done BEFORE the Green Room split so JDFS orders aren't accidentally
+    # split into Retail + TGR rows.
+    for r in rows:
+        override = _customer_channel_override(r.get("customer"))
+        if override:
+            r["channel"] = override
     # Line-level reclassification: bottles + cigars sold at Green Room go to Retail
     rows = _split_green_room_to_retail(rows, _ttl_bucket)
     return rows
@@ -2072,7 +2100,7 @@ if not today_live.empty:
 # Channel list (built from data)
 # Display order for channel pills: E-com → Retail → TGR → B2B (B2B at the end).
 # Any channel not in this list is appended after, sorted alphabetically.
-_CHANNEL_DISPLAY_ORDER = ["E-com", "Retail", "TGR", "B2B"]
+_CHANNEL_DISPLAY_ORDER = ["E-com", "Retail", "TGR", "B2B", "JDFS"]
 if not df_hist.empty:
     _present = set(df_hist["channel"].dropna().unique().tolist())
     _ordered = [c for c in _CHANNEL_DISPLAY_ORDER if c in _present]
