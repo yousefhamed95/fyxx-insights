@@ -44,12 +44,18 @@ ODOO_URL      = env("ODOO_URL")
 ODOO_DB       = env("ODOO_DB")
 ODOO_LOGIN    = env("ODOO_LOGIN")
 ODOO_API_KEY  = env("ODOO_API_KEY")
-SMTP_HOST     = env("SMTP_HOST", default="smtp.office365.com")
+SMTP_HOST     = env("SMTP_HOST", default="smtp.gmail.com")
 SMTP_PORT     = int(env("SMTP_PORT", default="587"))
 SMTP_USER     = env("SMTP_USER")
 SMTP_PASSWORD = env("SMTP_PASSWORD")
 EMAIL_FROM    = env("EMAIL_FROM")
 EMAIL_TO      = env("EMAIL_TO")
+# Optional — Cc recipients (comma-separated). Used to copy y.hamed@optico.jo
+# on every send so the user has a record of what went out.
+EMAIL_CC      = env("EMAIL_CC", required=False, default="")
+# Optional — if the actual SMTP sender (Gmail) differs from the address you
+# want replies to go to (y.hamed@optico.jo), set REPLY_TO accordingly.
+REPLY_TO      = env("REPLY_TO", required=False, default="")
 
 
 # -----------------------------------------------------------------------------
@@ -290,9 +296,17 @@ def send_email(stats):
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
+    if EMAIL_CC:
+        msg["Cc"] = EMAIL_CC
+    if REPLY_TO:
+        msg["Reply-To"] = REPLY_TO
 
     msg.attach(MIMEText(build_plain(stats), "plain", "utf-8"))
     msg.attach(MIMEText(build_html(stats), "html", "utf-8"))
+
+    to_list = [r.strip() for r in EMAIL_TO.split(",") if r.strip()]
+    cc_list = [r.strip() for r in EMAIL_CC.split(",") if r.strip()] if EMAIL_CC else []
+    all_recipients = to_list + cc_list
 
     print(f"Connecting to {SMTP_HOST}:{SMTP_PORT} as {SMTP_USER} ...")
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
@@ -300,9 +314,9 @@ def send_email(stats):
         server.starttls()
         server.ehlo()
         server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(EMAIL_FROM, [r.strip() for r in EMAIL_TO.split(",")],
-                        msg.as_string())
-    print(f"Sent to {EMAIL_TO} OK.")
+        server.sendmail(EMAIL_FROM, all_recipients, msg.as_string())
+    cc_label = f" (cc {EMAIL_CC})" if EMAIL_CC else ""
+    print(f"Sent to {EMAIL_TO}{cc_label} OK.")
 
 
 def main():

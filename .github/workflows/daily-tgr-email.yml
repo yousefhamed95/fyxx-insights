@@ -33,4 +33,6 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
+          EMAIL_CC:      ${{ secrets.EMAIL_CC }}
+          REPLY_TO:      ${{ secrets.REPLY_TO }}
         run: python scripts/send_tgr_daily_email.py
