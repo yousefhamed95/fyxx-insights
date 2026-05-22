@@ -319,10 +319,34 @@ def send_email(stats):
     print(f"Sent to {EMAIL_TO}{cc_label} OK.")
 
 
-def main():
+def _resolve_target_date():
+    """Return the date the report should cover.
+
+    Defaults to TODAY in Asia/Amman. The optional TARGET_DATE env var lets
+    operators re-send any historical day; values accepted:
+      - YYYY-MM-DD literal (e.g. 2026-05-21)
+      - 'today'      (same as default)
+      - 'yesterday'  (today - 1)
+    """
     today_local = datetime.now(TZ).date()
-    print(f"Today (Asia/Amman): {today_local}")
-    stats = tgr_stats_for_day(today_local)
+    raw = (os.environ.get("TARGET_DATE") or "").strip().lower()
+    if not raw or raw == "today":
+        return today_local, "today"
+    if raw == "yesterday":
+        return today_local - timedelta(days=1), "yesterday"
+    try:
+        d = datetime.strptime(raw, "%Y-%m-%d").date()
+        return d, f"override={raw}"
+    except ValueError:
+        sys.stderr.write(f"WARN: ignoring invalid TARGET_DATE={raw!r}, "
+                         f"falling back to today\n")
+        return today_local, "today"
+
+
+def main():
+    target_date, label = _resolve_target_date()
+    print(f"Target date (Asia/Amman): {target_date}  [{label}]")
+    stats = tgr_stats_for_day(target_date)
     print(f"Stats: total={stats['total_orders']} "
           f"named={stats['named_orders']} walk_in={stats['walk_in_orders']} "
           f"unique={stats['unique_named']}")
