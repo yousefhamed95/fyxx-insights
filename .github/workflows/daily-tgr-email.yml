@@ -1,0 +1,36 @@
+name: Daily TGR Customer Email
+
+# Runs every day at 20:00 UTC = 23:00 Asia/Amman.
+# (Jordan is UTC+3 year-round — no DST since 2022.)
+# Also allows manual run from the Actions tab.
+on:
+  schedule:
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send TGR daily email
+        env:
+          ODOO_URL:      ${{ secrets.ODOO_URL }}
+          ODOO_DB:       ${{ secrets.ODOO_DB }}
+          ODOO_LOGIN:    ${{ secrets.ODOO_LOGIN }}
+          ODOO_API_KEY:  ${{ secrets.ODOO_API_KEY }}
+          SMTP_HOST:     ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:     ${{ secrets.SMTP_PORT }}
+          SMTP_USER:     ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO:      ${{ secrets.EMAIL_TO }}
+        run: python scripts/send_tgr_daily_email.py
