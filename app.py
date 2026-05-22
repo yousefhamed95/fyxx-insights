@@ -1169,7 +1169,7 @@ CHANNEL_COLORS = {
     "Retail":     "#38BDF8",  # sky blue
     "TGR":        "#A78BFA",  # violet (hospitality / dine-in)
     "B2B":        "#F5B544",  # amber/gold (high-AOV wholesale)
-    "JDFS":       "#EC4899",  # rose — Jordanian Duty Free Shops
+    "DF":       "#EC4899",  # rose — Jordanian Duty Free Shops
 }
 
 
@@ -1380,8 +1380,8 @@ _EXCLUDED_CUSTOMER_KEYWORDS = (
 # Customer-name patterns that get their own dedicated channel, overriding
 # the salesperson/company-based classification. Substring match, case-insensitive.
 _CUSTOMER_CHANNEL_OVERRIDES = (
-    # Jordanian Duty Free Shops → its own 'JDFS' channel
-    (("jordanian duty free", "duty free shops"), "JDFS"),
+    # Jordanian Duty Free Shops → its own 'DF' channel
+    (("jordanian duty free", "duty free shops"), "DF"),
 )
 
 
@@ -1407,7 +1407,7 @@ def _is_internal_customer(name):
 
 
 # Bump this when the customer-exclusion rules change so the cache invalidates.
-DATA_FILTER_VERSION = 5   # v5 = JDFS customer-based channel override
+DATA_FILTER_VERSION = 6   # v6 = renamed JDFS channel to DF
 
 
 def resolve_channel_so(salesperson_name, company_name):
@@ -1633,8 +1633,8 @@ def fetch_orders_window_v5(start_iso, end_iso, _ttl_bucket,
     # Global customer filter: exclude internal/self-purchase entries
     # (currently: any customer name containing 'Fyxx Operations')
     rows = [r for r in rows if not _is_internal_customer(r.get("customer"))]
-    # Customer-name channel overrides (e.g. Jordanian Duty Free Shops → JDFS).
-    # Done BEFORE the Green Room split so JDFS orders aren't accidentally
+    # Customer-name channel overrides (e.g. Jordanian Duty Free Shops → DF).
+    # Done BEFORE the Green Room split so DF orders aren't accidentally
     # split into Retail + TGR rows.
     for r in rows:
         override = _customer_channel_override(r.get("customer"))
@@ -2100,7 +2100,7 @@ if not today_live.empty:
 # Channel list (built from data)
 # Display order for channel pills: E-com → Retail → TGR → B2B (B2B at the end).
 # Any channel not in this list is appended after, sorted alphabetically.
-_CHANNEL_DISPLAY_ORDER = ["E-com", "Retail", "TGR", "B2B", "JDFS"]
+_CHANNEL_DISPLAY_ORDER = ["E-com", "Retail", "TGR", "B2B", "DF"]
 if not df_hist.empty:
     _present = set(df_hist["channel"].dropna().unique().tolist())
     _ordered = [c for c in _CHANNEL_DISPLAY_ORDER if c in _present]
