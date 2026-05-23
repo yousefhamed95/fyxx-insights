@@ -20,8 +20,10 @@ import sys
 import xmlrpc.client
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from io import BytesIO
 from zoneinfo import ZoneInfo
 
 
@@ -284,6 +286,142 @@ def build_plain(s):
 
 
 # -----------------------------------------------------------------------------
+# PDF rendering (reportlab — installed by the workflow)
+# -----------------------------------------------------------------------------
+def build_pdf(stats) -> bytes:
+    """Render a single-page PDF that mirrors the email content."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                    Table, TableStyle)
+
+    ACCENT = colors.HexColor("#0F9D7B")
+    DARK   = colors.HexColor("#111114")
+    MID    = colors.HexColor("#52525B")
+    LINE   = colors.HexColor("#E4E4E7")
+    TINT   = colors.HexColor("#F4FBF8")
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=18*mm, bottomMargin=18*mm,
+        title=f"Fyxx TGR Summary {stats['date']:%Y-%m-%d}",
+        author="Fyxx Insights",
+    )
+
+    base = getSampleStyleSheet()
+    eyebrow = ParagraphStyle("eyebrow", parent=base["Normal"],
+        fontName="Helvetica-Bold", fontSize=9, textColor=ACCENT,
+        leading=11, spaceAfter=2)
+    title = ParagraphStyle("title", parent=base["Title"],
+        fontName="Helvetica-Bold", fontSize=22, leading=26,
+        textColor=DARK, alignment=0, spaceAfter=4)
+    subtitle = ParagraphStyle("subtitle", parent=base["Normal"],
+        fontSize=11, textColor=MID, spaceAfter=18)
+    section = ParagraphStyle("section", parent=base["Normal"],
+        fontName="Helvetica-Bold", fontSize=9, textColor=MID,
+        leading=11, spaceBefore=14, spaceAfter=6)
+    footer = ParagraphStyle("footer", parent=base["Normal"],
+        fontSize=8, textColor=MID, alignment=1)
+
+    elems = []
+    elems.append(Paragraph("FYXX TGR DAILY SUMMARY", eyebrow))
+    elems.append(Paragraph("Green Room (Dine-In)", title))
+    elems.append(Paragraph(stats["date"].strftime("%A, %d %B %Y"), subtitle))
+
+    # ---- KPI row ----
+    kpi_left = (
+        f'<font size="9" color="#52525B">TOTAL ORDERS</font><br/>'
+        f'<font size="22" color="#111114"><b>{stats["total_orders"]:,}</b></font>'
+    )
+    kpi_right = (
+        f'<font size="9" color="#52525B">UNIQUE NAMED CUSTOMERS</font><br/>'
+        f'<font size="22" color="#0F9D7B"><b>{stats["unique_named"]:,}</b></font>'
+    )
+    kpi = Table(
+        [[Paragraph(kpi_left, base["Normal"]),
+          Paragraph(kpi_right, base["Normal"])]],
+        colWidths=[82*mm, 82*mm],
+    )
+    kpi.setStyle(TableStyle([
+        ("BOX", (0,0), (-1,-1), 0.5, LINE),
+        ("LINEAFTER", (0,0), (0,0), 0.5, LINE),
+        ("LEFTPADDING", (0,0), (-1,-1), 14),
+        ("RIGHTPADDING", (0,0), (-1,-1), 14),
+        ("TOPPADDING", (0,0), (-1,-1), 14),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 16),
+    ]))
+    elems.append(kpi)
+
+    # ---- Breakdown table ----
+    elems.append(Paragraph("BREAKDOWN", section))
+    total_net = stats["named_revenue_net"] + stats["walk_in_revenue_net"]
+    breakdown = [
+        ["Orders to named customers",       f"{stats['named_orders']:,}"],
+        ["Orders to walk-in (no name)",     f"{stats['walk_in_orders']:,}"],
+        ["Net revenue · named customers",   f"{stats['named_revenue_net']:,.0f} JOD"],
+        ["Net revenue · walk-in",           f"{stats['walk_in_revenue_net']:,.0f} JOD"],
+        ["Total net revenue (excl. VAT)",   f"{total_net:,.0f} JOD"],
+    ]
+    bd = Table(breakdown, colWidths=[114*mm, 50*mm])
+    bd.setStyle(TableStyle([
+        ("FONT", (0,0), (-1,-1), "Helvetica", 10),
+        ("TEXTCOLOR", (0,0), (0,-1), MID),
+        ("TEXTCOLOR", (1,0), (1,-2), DARK),
+        ("ALIGN", (1,0), (1,-1), "RIGHT"),
+        ("LINEBELOW", (0,0), (-1,-2), 0.25, LINE),
+        ("BACKGROUND", (0,-1), (-1,-1), TINT),
+        ("FONT", (0,-1), (-1,-1), "Helvetica-Bold", 10),
+        ("TEXTCOLOR", (1,-1), (1,-1), ACCENT),
+        ("LEFTPADDING", (0,0), (-1,-1), 8),
+        ("RIGHTPADDING", (0,0), (-1,-1), 8),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+        ("TOPPADDING", (0,0), (-1,-1), 8),
+    ]))
+    elems.append(bd)
+
+    # ---- Top named customers ----
+    if stats["top_named"]:
+        elems.append(Paragraph("TOP NAMED CUSTOMERS", section))
+        header = ["Orders", "Net Revenue", "Customer"]
+        rows = [header]
+        for nm, c in stats["top_named"]:
+            rows.append([str(c["orders"]), f"{c['net']:,.0f} JOD", nm])
+        tb = Table(rows, colWidths=[20*mm, 40*mm, 104*mm])
+        tb.setStyle(TableStyle([
+            ("FONT", (0,0), (-1,0), "Helvetica-Bold", 8),
+            ("TEXTCOLOR", (0,0), (-1,0), MID),
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F4F4F5")),
+            ("ALIGN", (0,0), (1,-1), "RIGHT"),
+            ("ALIGN", (2,0), (2,-1), "LEFT"),
+            ("FONT", (0,1), (-1,-1), "Helvetica", 10),
+            ("TEXTCOLOR", (0,1), (-1,-1), DARK),
+            ("LINEBELOW", (0,0), (-1,-1), 0.25, LINE),
+            ("LEFTPADDING", (0,0), (-1,-1), 8),
+            ("RIGHTPADDING", (0,0), (-1,-1), 8),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 7),
+            ("TOPPADDING", (0,0), (-1,-1), 7),
+        ]))
+        elems.append(tb)
+    else:
+        elems.append(Paragraph(
+            "<i>No named-customer orders on this date.</i>",
+            ParagraphStyle("empty", parent=base["Normal"],
+                           fontSize=10, textColor=MID, spaceBefore=10)))
+
+    elems.append(Spacer(1, 24))
+    gen_at = datetime.now(TZ).strftime("%Y-%m-%d %H:%M %Z")
+    elems.append(Paragraph(
+        f"Generated automatically by Fyxx Insights · {gen_at}", footer))
+
+    doc.build(elems)
+    return buf.getvalue()
+
+
+# -----------------------------------------------------------------------------
 # Send
 # -----------------------------------------------------------------------------
 def send_email(stats):
@@ -292,7 +430,9 @@ def send_email(stats):
                f"({stats['total_orders']} orders, "
                f"{stats['unique_named']} named customers)")
 
-    msg = MIMEMultipart("alternative")
+    # Outer container is "mixed" so we can ride a PDF attachment alongside
+    # the html/plain alternative pair.
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
@@ -301,8 +441,22 @@ def send_email(stats):
     if REPLY_TO:
         msg["Reply-To"] = REPLY_TO
 
-    msg.attach(MIMEText(build_plain(stats), "plain", "utf-8"))
-    msg.attach(MIMEText(build_html(stats), "html", "utf-8"))
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(build_plain(stats), "plain", "utf-8"))
+    alt.attach(MIMEText(build_html(stats), "html", "utf-8"))
+    msg.attach(alt)
+
+    # PDF attachment
+    try:
+        pdf_bytes = build_pdf(stats)
+        pdf = MIMEApplication(pdf_bytes, _subtype="pdf")
+        pdf_name = f"TGR-summary-{stats['date'].strftime('%Y-%m-%d')}.pdf"
+        pdf.add_header("Content-Disposition", "attachment", filename=pdf_name)
+        msg.attach(pdf)
+        print(f"PDF attached: {pdf_name} ({len(pdf_bytes):,} bytes)")
+    except Exception as e:
+        # Don't fail the whole email if PDF generation hiccups — send w/o attachment
+        sys.stderr.write(f"WARN: PDF generation failed, sending without attachment: {e}\n")
 
     to_list = [r.strip() for r in EMAIL_TO.split(",") if r.strip()]
     cc_list = [r.strip() for r in EMAIL_CC.split(",") if r.strip()] if EMAIL_CC else []
