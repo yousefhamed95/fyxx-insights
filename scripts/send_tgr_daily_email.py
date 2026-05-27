@@ -473,6 +473,60 @@ def send_email(stats):
     print(f"Sent to {EMAIL_TO}{cc_label} OK.")
 
 
+def _scheduled_send_already_happened() -> bool:
+    """Return True if another *scheduled* run of this workflow has already
+    finished successfully within the last 12 hours.
+
+    Used to deduplicate when multiple backup cron times all fire on the
+    same Amman-night window — only the first scheduled fire actually
+    sends; later ones short-circuit before composing the email.
+
+    Manual workflow_dispatch runs are never blocked (this function only
+    consults the schedule history when the current event is itself a
+    scheduled fire).
+    """
+    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
+        return False
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GITHUB_TOKEN")
+    cur_id = os.environ.get("GITHUB_RUN_ID", "")
+    if not (repo and token):
+        return False
+
+    import json
+    import urllib.request
+    url = (f"https://api.github.com/repos/{repo}/actions/workflows/"
+           f"daily-tgr-email.yml/runs?status=success&per_page=10")
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        sys.stderr.write(f"WARN: could not query run history for dedupe: {e}\n")
+        return False  # Fail open — prefer a duplicate over a miss
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
+    for r in data.get("workflow_runs", []):
+        if str(r.get("id")) == cur_id:
+            continue
+        if r.get("event") != "schedule":
+            continue  # only previous scheduled fires count
+        try:
+            upd = datetime.strptime(
+                r.get("updated_at", ""), "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if upd >= cutoff:
+            print(f"Dedup: scheduled run {r.get('id')} already succeeded at "
+                  f"{r.get('updated_at')} — skipping this fire.")
+            return True
+    return False
+
+
 def _resolve_target_date():
     """Return the date the report should cover.
 
@@ -498,6 +552,8 @@ def _resolve_target_date():
 
 
 def main():
+    if _scheduled_send_already_happened():
+        return  # Backup cron — a sibling fire already sent the email
     target_date, label = _resolve_target_date()
     print(f"Target date (Asia/Amman): {target_date}  [{label}]")
     stats = tgr_stats_for_day(target_date)

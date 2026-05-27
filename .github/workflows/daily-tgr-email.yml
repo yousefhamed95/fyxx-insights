@@ -1,13 +1,24 @@
 name: Daily TGR Customer Email
 
-# Runs every day at 22:00 UTC = 01:00 Asia/Amman (next day).
-# Scheduled runs always report YESTERDAY's data so the trading day is
-# fully closed before the email goes out.
+# Tries 4 times each night, 22:00 / 23:00 / 00:00 / 02:00 UTC
+# (= 01:00 / 02:00 / 03:00 / 05:00 Asia/Amman). The script's dedup
+# guard ensures only the FIRST successful fire actually sends an email —
+# later fires query the workflow run history and short-circuit if a
+# scheduled sibling already succeeded in the last 12 hours.
+#
+# Why 4 fires: GitHub Actions cron on personal repos is best-effort and
+# regularly skips runs or delays them by hours. Four spread-out attempts
+# give >99% probability that at least one fires before the next day.
+#
+# Scheduled fires always report YESTERDAY's data (trading day fully
+# closed). Manual workflow_dispatch can override via the date input.
 # (Jordan is UTC+3 year-round — no DST since 2022.)
-# Manual runs from the Actions tab can override the date via the input.
 on:
   schedule:
-    - cron: "0 22 * * *"
+    - cron: "0 22 * * *"   # 01:00 Amman, primary
+    - cron: "0 23 * * *"   # 02:00 Amman, backup #1
+    - cron: "0 0 * * *"    # 03:00 Amman, backup #2
+    - cron: "0 2 * * *"    # 05:00 Amman, last resort
   workflow_dispatch:
     inputs:
       target_date:
@@ -33,6 +44,12 @@ jobs:
 
       - name: Send TGR daily email
         env:
+          # GitHub auto-injects these — used by the dedup guard so backup
+          # cron fires can detect that an earlier fire already sent.
+          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:   ${{ github.repository }}
+          GITHUB_RUN_ID:       ${{ github.run_id }}
+          GITHUB_EVENT_NAME:   ${{ github.event_name }}
           ODOO_URL:      ${{ secrets.ODOO_URL }}
           ODOO_DB:       ${{ secrets.ODOO_DB }}
           ODOO_LOGIN:    ${{ secrets.ODOO_LOGIN }}
