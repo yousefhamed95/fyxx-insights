@@ -1669,6 +1669,80 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
     return df
 
 
+# =============================================================================
+# ONLINE / DRAFT ORDERS BY SHIFT  (dedicated read-only fetch for the Shifts tab)
+# =============================================================================
+SHIFT_TAB_VERSION = 1   # bump to invalidate the Shifts-tab cache
+
+# Shift boundaries (Asia/Amman local hours), set by the user:
+#   Shift 1 "Day"     : 10:00 – 17:00   (10 AM – 5 PM)
+#   Shift 2 "Evening" : 17:00 – 01:00   (5 PM – 1 AM, spans midnight)
+#   Off-hours         : 01:00 – 10:00   (shown only so daily totals reconcile)
+SHIFT_DAY_LABEL = "Day · 10–17"
+SHIFT_EVE_LABEL = "Evening · 17–01"
+SHIFT_OFF_LABEL = "Off · 01–10"
+SHIFT_ORDER = [SHIFT_DAY_LABEL, SHIFT_EVE_LABEL, SHIFT_OFF_LABEL]
+SHIFT_COLORS = {
+    SHIFT_DAY_LABEL: "#F5B544",   # amber — daytime
+    SHIFT_EVE_LABEL: "#A78BFA",   # violet — evening / night
+    SHIFT_OFF_LABEL: "#3F3F46",   # muted graphite — off-hours
+}
+
+
+def _shift_of_hour(hour):
+    """Bucket an Amman-local hour (0-23) into one of the two shifts, or Off."""
+    if 10 <= hour < 17:
+        return SHIFT_DAY_LABEL
+    if hour >= 17 or hour < 1:        # 17:00–00:59 (wraps past midnight)
+        return SHIFT_EVE_LABEL
+    return SHIFT_OFF_LABEL
+
+
+@st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
+def fetch_online_draft_orders(start_iso, end_iso, _ttl_bucket,
+                              _v=SHIFT_TAB_VERSION):
+    """Pull sale.order across ALL states in a UTC window for the Shifts tab.
+
+    Returns flat rows tagged with resolved channel + state so the tab can
+    classify each into Online (E-com confirmed), Draft (draft/sent) or
+    Cancelled, and bucket it by shift. Strictly read-only."""
+    domain = [
+        ["date_order", ">=", start_iso],
+        ["date_order", "<=", end_iso],
+        ["state", "in", ["sale", "done", "draft", "sent", "cancel"]],
+    ]
+    fields = ["name", "state", "date_order", "user_id", "company_id",
+              "partner_id", "amount_untaxed", "amount_tax"]
+    try:
+        orders = kw("sale.order", "search_read", [domain],
+                    {"fields": fields, "limit": 200000,
+                     "order": "date_order asc"})
+    except Exception:
+        orders = []
+    rows = []
+    for o in orders:
+        customer = o["partner_id"][1] if o.get("partner_id") else "—"
+        if _is_internal_customer(customer):
+            continue
+        salesperson = o["user_id"][1] if o.get("user_id") else "—"
+        company = o["company_id"][1] if o.get("company_id") else None
+        channel = resolve_channel_so(salesperson, company)
+        override = _customer_channel_override(customer)
+        if override:
+            channel = override
+        rows.append({
+            "name": o["name"],
+            "state": o["state"],
+            "channel": channel,
+            "customer": customer,
+            "salesperson": salesperson,
+            "net": float(o.get("amount_untaxed") or 0),
+            "vat": float(o.get("amount_tax") or 0),
+            "date_order": o["date_order"],
+        })
+    return rows
+
+
 def _ltr(value):
     """Prefix a value with U+200E (LEFT-TO-RIGHT MARK) so any cell that
     contains Arabic (or mixed) text aligns to the LEFT edge in tables
@@ -2723,10 +2797,11 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 # =============================================================================
 # TABS
 # =============================================================================
-(tab_brief, tab_exec, tab_pace, tab_profit, tab_pnl, tab_sku, tab_loss,
- tab_alerts, tab_trends, tab_channels, tab_customers, tab_cohorts,
+(tab_brief, tab_exec, tab_shifts, tab_pace, tab_profit, tab_pnl, tab_sku,
+ tab_loss, tab_alerts, tab_trends, tab_channels, tab_customers, tab_cohorts,
  tab_compare, tab_recent) = st.tabs(
-    ["  ◆  Brief  ", "  ❖  Executive Summary  ", "  ▲  Pacing  ",
+    ["  ◆  Brief  ", "  ❖  Executive Summary  ", "  ◷  Online & Shifts  ",
+     "  ▲  Pacing  ",
      "  ◯  Profitability  ", "  Σ  P&L  ", "  ❒  Products  ",
      "  ※  Loss Orders  ", "  ⚑  Alerts  ", "  ⌁  Trends  ",
      "  ⌬  Channels  ", "  ◐  Customers  ", "  ⟳  Cohorts  ",
@@ -3381,6 +3456,342 @@ with tab_exec:
 
 
 # -------- Pacing & Forecast --------
+# -------- Online & Shifts --------
+with tab_shifts:
+    st.markdown(
+        "<style>"
+        ".insight-card{background:linear-gradient(135deg,rgba(25,227,182,0.07),"
+        "rgba(167,139,250,0.05));border:1px solid #23232B;border-radius:14px;"
+        "padding:15px 20px;margin-top:14px}"
+        ".insight-title{font-size:11px;font-weight:700;letter-spacing:0.14em;"
+        "text-transform:uppercase;color:#19E3B6;margin-bottom:8px}"
+        ".insight-list{margin:0;padding-left:18px;color:#D4D4D8;font-size:13px;"
+        "line-height:1.95}"
+        ".insight-list li{margin-bottom:1px}"
+        ".shift-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}"
+        ".shift-table th{text-align:right;padding:8px 12px;color:#71717A;font-size:10px;"
+        "text-transform:uppercase;letter-spacing:0.07em;border-bottom:1px solid #23232B}"
+        ".shift-table th:first-child{text-align:left}"
+        ".shift-table td{text-align:right;padding:7px 12px;color:#E4E4E7;"
+        "border-bottom:1px solid #18181f;font-variant-numeric:tabular-nums}"
+        ".shift-table td:first-child{text-align:left;color:#A1A1AA}"
+        ".shift-table tr.tot td{border-top:1px solid #2D2D37;font-weight:700;"
+        "color:#F4F4F5;background:rgba(25,227,182,0.05)}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+
+    # --- Rolling 7-day "week" ending today, plus the prior 7 days for deltas ---
+    wk_end = today_local
+    wk_start = today_local - timedelta(days=6)
+    pv_start = wk_start - timedelta(days=7)
+    pv_end = wk_start - timedelta(days=1)
+
+    _s_utc, _e_utc = _date_window_utc(pv_start, wk_end, TZ)
+    sh_rows = fetch_online_draft_orders(
+        _s_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        _e_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        hist_bucket,
+    )
+
+    if sh_rows:
+        sdf = pd.DataFrame(sh_rows)
+        sdf["dt_local"] = sdf["date_order"].apply(lambda s: _to_local_dt(s, TZ))
+        sdf["day"] = sdf["dt_local"].dt.date
+        sdf["hour"] = sdf["dt_local"].dt.hour
+        sdf["shift"] = sdf["hour"].apply(_shift_of_hour)
+        sdf["is_online"] = (sdf["state"].isin(["sale", "done"]) &
+                            (sdf["channel"] == "E-com"))
+        sdf["is_draft"] = sdf["state"].isin(["draft", "sent"])
+        sdf["is_cancel"] = sdf["state"] == "cancel"
+    else:
+        sdf = pd.DataFrame(columns=[
+            "day", "hour", "shift", "is_online", "is_draft", "is_cancel", "net"])
+
+    def _slice(d, a, b):
+        return d[(d["day"] >= a) & (d["day"] <= b)] if not d.empty else d
+
+    cur = _slice(sdf, wk_start, wk_end)
+    prv = _slice(sdf, pv_start, pv_end)
+    online_cur = cur[cur["is_online"]] if not cur.empty else cur
+    online_prv = prv[prv["is_online"]] if not prv.empty else prv
+    draft_cur = cur[cur["is_draft"]] if not cur.empty else cur
+    cancel_cur = cur[cur["is_cancel"]] if not cur.empty else cur
+
+    n_online = len(online_cur)
+    n_online_prev = len(online_prv)
+    n_draft = len(draft_cur)
+    n_cancel = len(cancel_cur)
+
+    def _sc(d, shift):
+        return int((d["shift"] == shift).sum()) if not d.empty else 0
+
+    n_day = _sc(online_cur, SHIFT_DAY_LABEL)
+    n_eve = _sc(online_cur, SHIFT_EVE_LABEL)
+    n_off = _sc(online_cur, SHIFT_OFF_LABEL)
+    day_prev = _sc(online_prv, SHIFT_DAY_LABEL)
+    eve_prev = _sc(online_prv, SHIFT_EVE_LABEL)
+
+    days = [wk_start + timedelta(days=i) for i in range(7)]
+    day_labels = [d.strftime("%a %d") for d in days]
+
+    # ---------- Header ----------
+    st.markdown(
+        "<div class='sec'><h3>Online Orders &amp; Shift Analytics</h3>"
+        f"<div class='sec-sub'>Rolling 7-day week · {wk_start:%d %b} → "
+        f"{wk_end:%d %b %Y} &nbsp;·&nbsp; Day shift 10:00–17:00 &nbsp;·&nbsp; "
+        "Evening shift 17:00–01:00 &nbsp;·&nbsp; online = E-com / website orders"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ---------- KPI strip ----------
+    avg_per_day = n_online / 7.0
+    if not online_cur.empty:
+        by_day = online_cur.groupby("day").size()
+        busiest_day = by_day.idxmax()
+        busiest_n = int(by_day.max())
+        busiest_lbl = busiest_day.strftime("%a %d %b")
+    else:
+        busiest_lbl, busiest_n = "—", 0
+    day_share = (n_day / n_online * 100) if n_online else 0
+    eve_share = (n_eve / n_online * 100) if n_online else 0
+
+    kpis = "<div class='kpi-grid' style='margin-top:6px'>"
+    kpis += kpi_card(
+        "Online orders · 7d", f"{n_online:,}",
+        delta_html(n_online, n_online_prev, "vs prior week"),
+        f"Prior week: {n_online_prev:,}")
+    kpis += kpi_card(
+        "Day shift · 10–17", f"{n_day:,}",
+        delta_html(n_day, day_prev, "vs prior week"),
+        f"{day_share:.0f}% of online")
+    kpis += kpi_card(
+        "Evening shift · 17–01", f"{n_eve:,}",
+        delta_html(n_eve, eve_prev, "vs prior week"),
+        f"{eve_share:.0f}% of online")
+    kpis += kpi_card(
+        "Busiest day", busiest_lbl,
+        f"{busiest_n:,} online orders",
+        f"Avg {avg_per_day:.1f} / day")
+    kpis += kpi_card(
+        "Draft orders · 7d", f"{n_draft:,}",
+        "", "Odoo quotations (draft / sent)")
+    kpis += kpi_card(
+        "Cancelled · 7d", f"{n_cancel:,}",
+        "", "Orders placed then voided")
+    kpis += "</div>"
+    st.markdown(kpis, unsafe_allow_html=True)
+
+    # ---------- Smart insights ----------
+    insights = []
+    if n_online:
+        if n_eve >= n_day:
+            dom, dom_n, oth_n = "evening", n_eve, n_day
+        else:
+            dom, dom_n, oth_n = "day", n_day, n_eve
+        dom_share = dom_n / n_online * 100 if n_online else 0
+        insights.append(
+            f"The <b>{dom} shift</b> drives <b>{dom_share:.0f}%</b> of online "
+            f"orders this week — <b>{dom_n:,}</b> vs <b>{oth_n:,}</b> on the "
+            "other shift.")
+        ph = online_cur.groupby("hour").size()
+        if not ph.empty:
+            peak_h = int(ph.idxmax())
+            peak_hn = int(ph.max())
+            rush = "evening" if (peak_h >= 17 or peak_h < 1) else "afternoon"
+            insights.append(
+                f"Peak hour is <b>{peak_h:02d}:00</b> with <b>{peak_hn:,}</b> "
+                f"orders — concentrate staffing around the {rush} rush.")
+        if n_online_prev:
+            d = (n_online - n_online_prev) / n_online_prev * 100
+            insights.append(
+                f"Online volume is <b>{'up' if d >= 0 else 'down'} "
+                f"{abs(d):.0f}%</b> vs the prior week "
+                f"({n_online:,} vs {n_online_prev:,}).")
+        if not online_cur.empty:
+            bd = online_cur.groupby("day").size()
+            qd = bd.idxmin()
+            insights.append(
+                f"Busiest day <b>{busiest_lbl}</b> ({busiest_n:,}); quietest "
+                f"<b>{qd:%a %d %b}</b> ({int(bd.min()):,}).")
+        placed = n_online + n_cancel
+        if placed:
+            insights.append(
+                f"<b>{n_cancel:,}</b> orders were cancelled this week — "
+                f"<b>{n_cancel / placed * 100:.0f}%</b> of all placed.")
+        if n_off:
+            insights.append(
+                f"<b>{n_off:,}</b> orders landed off-shift (01:00–10:00).")
+        insights.append(
+            f"<b>{n_draft:,}</b> draft quotation(s) pending in Odoo."
+            if n_draft else
+            "No draft quotations are currently pending in Odoo.")
+    else:
+        insights.append("No online orders were recorded in the last 7 days.")
+    items = "".join(f"<li>{t}</li>" for t in insights)
+    st.markdown(
+        "<div class='insight-card'><div class='insight-title'>◆ Smart insights"
+        f"</div><ul class='insight-list'>{items}</ul></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ---------- Daily stacked bars (online by shift) ----------
+    st.markdown(
+        "<div class='sec' style='margin-top:18px'><h3>Daily online orders by shift"
+        "</h3><div class='sec-sub'>Stacked — day vs evening vs off-hours</div></div>",
+        unsafe_allow_html=True)
+    if n_online:
+        fig = go.Figure()
+        for shift in SHIFT_ORDER:
+            yvals = [int(((online_cur["day"] == d) &
+                          (online_cur["shift"] == shift)).sum()) for d in days]
+            if shift == SHIFT_OFF_LABEL and sum(yvals) == 0:
+                continue
+            fig.add_trace(go.Bar(
+                x=day_labels, y=yvals, name=shift,
+                marker=dict(color=SHIFT_COLORS[shift]),
+                text=[v if v else "" for v in yvals],
+                texttemplate="%{text}", textposition="inside",
+                insidetextanchor="middle",
+                textfont=dict(size=11, color="#0A0A0B"),
+                hovertemplate=f"<b>%{{x}}</b><br>{shift}: %{{y}} orders<extra></extra>",
+            ))
+        fig.update_layout(barmode="stack", bargap=0.32)
+        st.plotly_chart(style_fig(fig, height=350), use_container_width=True)
+    else:
+        st.info("No online orders in the last 7 days.")
+
+    # ---------- Shift donut + hour-of-day ----------
+    c1, c2 = st.columns([2, 3])
+    with c1:
+        st.markdown(
+            "<div class='sec'><h3>Shift split</h3>"
+            "<div class='sec-sub'>Share of online orders</div></div>",
+            unsafe_allow_html=True)
+        if n_online:
+            labels = [SHIFT_DAY_LABEL, SHIFT_EVE_LABEL]
+            vals = [n_day, n_eve]
+            cols = [SHIFT_COLORS[SHIFT_DAY_LABEL], SHIFT_COLORS[SHIFT_EVE_LABEL]]
+            if n_off:
+                labels.append(SHIFT_OFF_LABEL)
+                vals.append(n_off)
+                cols.append(SHIFT_COLORS[SHIFT_OFF_LABEL])
+            fig = go.Figure(go.Pie(
+                labels=labels, values=vals, hole=0.64, sort=False,
+                marker=dict(colors=cols,
+                            line=dict(color=PALETTE["surface"], width=2)),
+                textinfo="percent", textfont=dict(size=12, color="#0A0A0B"),
+                hovertemplate="%{label}<br>%{value} orders (%{percent})<extra></extra>",
+            ))
+            fig.update_layout(annotations=[dict(
+                text=f"<b style='color:#F4F4F5'>{n_online:,}</b><br>"
+                     "<span style='font-size:10px;color:#A1A1AA'>online</span>",
+                x=0.5, y=0.5, showarrow=False, font=dict(size=20))])
+            st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
+        else:
+            st.info("No data.")
+    with c2:
+        st.markdown(
+            "<div class='sec'><h3>Orders by hour of day</h3>"
+            "<div class='sec-sub'>Bar colour marks the shift each hour belongs to</div></div>",
+            unsafe_allow_html=True)
+        if n_online:
+            hours = list(range(24))
+            hv = online_cur.groupby("hour").size().reindex(hours, fill_value=0)
+            colors = [SHIFT_COLORS[_shift_of_hour(h)] for h in hours]
+            fig = go.Figure(go.Bar(
+                x=[f"{h:02d}" for h in hours], y=hv.values,
+                marker=dict(color=colors),
+                hovertemplate="%{x}:00<br>%{y} orders<extra></extra>",
+            ))
+            st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                            use_container_width=True)
+        else:
+            st.info("No data.")
+
+    # ---------- Day × hour heatmap ----------
+    st.markdown(
+        "<div class='sec' style='margin-top:14px'><h3>Order intensity · day × hour"
+        "</h3><div class='sec-sub'>Online order counts; brighter = busier</div></div>",
+        unsafe_allow_html=True)
+    if n_online:
+        mat = online_cur.groupby(["day", "hour"]).size().reset_index(name="n")
+        piv = (mat.pivot(index="day", columns="hour", values="n")
+               .reindex(days).reindex(columns=range(24)).fillna(0))
+        ylab = [d.strftime("%a %d %b") for d in days]
+        text_z = [[(f"{int(v)}" if v else "") for v in row] for row in piv.values]
+        fig = go.Figure(go.Heatmap(
+            z=piv.values, x=[f"{h:02d}" for h in range(24)], y=ylab,
+            colorscale=[[0, "#0A0A0B"], [0.45, "#3a2f5e"], [1, "#A78BFA"]],
+            text=text_z, texttemplate="%{text}",
+            textfont=dict(size=9, color="#E4E4E7"),
+            hovertemplate="%{y} · %{x}:00<br>%{z} orders<extra></extra>",
+            showscale=False, xgap=1, ygap=2,
+        ))
+        st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                        use_container_width=True)
+    else:
+        st.info("No data.")
+
+    # ---------- Online vs draft daily trend ----------
+    st.markdown(
+        "<div class='sec' style='margin-top:14px'><h3>Online vs draft · daily</h3>"
+        "<div class='sec-sub'>Order counts across the week</div></div>",
+        unsafe_allow_html=True)
+    on_daily = [int((online_cur["day"] == d).sum()) if not online_cur.empty else 0
+                for d in days]
+    dr_daily = [int((draft_cur["day"] == d).sum()) if not draft_cur.empty else 0
+                for d in days]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=day_labels, y=on_daily, name="Online",
+        mode="lines+markers+text",
+        line=dict(width=2.6, color=PALETTE["neon"], shape="spline", smoothing=0.5),
+        marker=dict(size=7, color=PALETTE["neon"]),
+        text=on_daily, textposition="top center",
+        textfont=dict(color=PALETTE["neon"], size=10), cliponaxis=False,
+        hovertemplate="%{x}<br>%{y} online<extra></extra>"))
+    fig.add_trace(go.Scatter(
+        x=day_labels, y=dr_daily, name="Draft",
+        mode="lines+markers",
+        line=dict(width=2.2, color=PALETTE["sky"], dash="dot"),
+        marker=dict(size=6, color=PALETTE["sky"]),
+        hovertemplate="%{x}<br>%{y} draft<extra></extra>"))
+    st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
+
+    # ---------- Per-day breakdown table ----------
+    st.markdown(
+        "<div class='sec' style='margin-top:14px'><h3>Per-day breakdown</h3>"
+        "<div class='sec-sub'>Online orders by shift, plus drafts &amp; "
+        "cancellations</div></div>",
+        unsafe_allow_html=True)
+    tot = {"day": 0, "eve": 0, "off": 0, "on": 0, "dr": 0, "cn": 0}
+    body = ""
+    for d in days:
+        dd = online_cur[online_cur["day"] == d] if not online_cur.empty else online_cur
+        cday = _sc(dd, SHIFT_DAY_LABEL)
+        ceve = _sc(dd, SHIFT_EVE_LABEL)
+        coff = _sc(dd, SHIFT_OFF_LABEL)
+        con = cday + ceve + coff
+        cdr = int((draft_cur["day"] == d).sum()) if not draft_cur.empty else 0
+        ccn = int((cancel_cur["day"] == d).sum()) if not cancel_cur.empty else 0
+        tot["day"] += cday; tot["eve"] += ceve; tot["off"] += coff
+        tot["on"] += con; tot["dr"] += cdr; tot["cn"] += ccn
+        body += (f"<tr><td>{d:%a %d %b}</td><td>{cday}</td><td>{ceve}</td>"
+                 f"<td>{coff}</td><td><b>{con}</b></td><td>{cdr}</td>"
+                 f"<td>{ccn}</td></tr>")
+    body += (f"<tr class='tot'><td>Total</td><td>{tot['day']}</td>"
+             f"<td>{tot['eve']}</td><td>{tot['off']}</td><td>{tot['on']}</td>"
+             f"<td>{tot['dr']}</td><td>{tot['cn']}</td></tr>")
+    st.markdown(
+        "<table class='shift-table'><thead><tr>"
+        "<th>Date</th><th>Day 10–17</th><th>Evening 17–01</th><th>Off 01–10</th>"
+        "<th>Total online</th><th>Draft</th><th>Cancelled</th>"
+        f"</tr></thead><tbody>{body}</tbody></table>",
+        unsafe_allow_html=True)
+
+
 with tab_pace:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
