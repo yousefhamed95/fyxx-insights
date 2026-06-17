@@ -3481,121 +3481,130 @@ with tab_shifts:
         unsafe_allow_html=True,
     )
 
-    # --- Rolling 7-day "week" ending today, plus the prior 7 days for deltas ---
-    wk_end = today_local
-    wk_start = today_local - timedelta(days=6)
-    pv_start = wk_start - timedelta(days=7)
-    pv_end = wk_start - timedelta(days=1)
+    # ===== Linked to the global filters: scope window + channels + years =====
+    # Confirmed orders already reflect year + channel + scope (df_curr/df_prev).
+    # Drafts + cancellations aren't in that pipeline, so they're fetched for the
+    # SAME window and run through the SAME channel filter below.
+    sh_start, sh_end = curr_start, curr_end
+    win_days = max(1, (sh_end - sh_start).days + 1)
+    is_online_only = set(selected_channels) == {"E-com"}
+    noun = "online orders" if is_online_only else "orders"
+    show_day_labels = win_days <= 16
 
-    _s_utc, _e_utc = _date_window_utc(pv_start, wk_end, TZ)
+    def _with_shift(d):
+        if d.empty:
+            return d
+        x = d.copy()
+        x["hour"] = x["dt_local"].dt.hour
+        x["shift"] = x["hour"].apply(_shift_of_hour)
+        return x
+
+    conf_cur = _with_shift(df_curr)
+    conf_prv = _with_shift(df_prev)
+
+    _s_utc, _e_utc = _date_window_utc(sh_start, sh_end, TZ)
     sh_rows = fetch_online_draft_orders(
         _s_utc.strftime("%Y-%m-%d %H:%M:%S"),
         _e_utc.strftime("%Y-%m-%d %H:%M:%S"),
         hist_bucket,
     )
-
     if sh_rows:
         sdf = pd.DataFrame(sh_rows)
+        sdf = sdf[sdf["channel"].isin(selected_channels)]   # honour channel pills
+    else:
+        sdf = pd.DataFrame(columns=["state", "channel", "date_order"])
+    if not sdf.empty:
         sdf["dt_local"] = sdf["date_order"].apply(lambda s: _to_local_dt(s, TZ))
         sdf["day"] = sdf["dt_local"].dt.date
-        sdf["hour"] = sdf["dt_local"].dt.hour
-        sdf["shift"] = sdf["hour"].apply(_shift_of_hour)
-        sdf["is_online"] = (sdf["state"].isin(["sale", "done"]) &
-                            (sdf["channel"] == "E-com"))
-        sdf["is_draft"] = sdf["state"].isin(["draft", "sent"])
-        sdf["is_cancel"] = sdf["state"] == "cancel"
+        draft_cur = sdf[sdf["state"].isin(["draft", "sent"])]
+        cancel_cur = sdf[sdf["state"] == "cancel"]
     else:
-        sdf = pd.DataFrame(columns=[
-            "day", "hour", "shift", "is_online", "is_draft", "is_cancel", "net"])
+        draft_cur = cancel_cur = sdf
 
-    def _slice(d, a, b):
-        return d[(d["day"] >= a) & (d["day"] <= b)] if not d.empty else d
+    days = [sh_start + timedelta(days=i) for i in range(win_days)]
+    day_labels = [d.strftime("%a %d") for d in days]
 
-    cur = _slice(sdf, wk_start, wk_end)
-    prv = _slice(sdf, pv_start, pv_end)
-    online_cur = cur[cur["is_online"]] if not cur.empty else cur
-    online_prv = prv[prv["is_online"]] if not prv.empty else prv
-    draft_cur = cur[cur["is_draft"]] if not cur.empty else cur
-    cancel_cur = cur[cur["is_cancel"]] if not cur.empty else cur
-
-    n_online = len(online_cur)
-    n_online_prev = len(online_prv)
+    n_orders = len(conf_cur)
+    n_orders_prev = len(conf_prv)
     n_draft = len(draft_cur)
     n_cancel = len(cancel_cur)
 
     def _sc(d, shift):
-        return int((d["shift"] == shift).sum()) if not d.empty else 0
+        return int((d["shift"] == shift).sum()) if (not d.empty and "shift" in d) else 0
 
-    n_day = _sc(online_cur, SHIFT_DAY_LABEL)
-    n_eve = _sc(online_cur, SHIFT_EVE_LABEL)
-    n_off = _sc(online_cur, SHIFT_OFF_LABEL)
-    day_prev = _sc(online_prv, SHIFT_DAY_LABEL)
-    eve_prev = _sc(online_prv, SHIFT_EVE_LABEL)
+    n_day = _sc(conf_cur, SHIFT_DAY_LABEL)
+    n_eve = _sc(conf_cur, SHIFT_EVE_LABEL)
+    n_off = _sc(conf_cur, SHIFT_OFF_LABEL)
+    day_prev = _sc(conf_prv, SHIFT_DAY_LABEL)
+    eve_prev = _sc(conf_prv, SHIFT_EVE_LABEL)
 
-    days = [wk_start + timedelta(days=i) for i in range(7)]
-    day_labels = [d.strftime("%a %d") for d in days]
-
-    # ---------- Header ----------
+    # ---------- Header (mirrors the active filters) ----------
+    if not selected_channels or set(selected_channels) == set(all_channels):
+        ch_note = "all channels"
+    else:
+        ch_note = ", ".join(selected_channels)
+    title = ("Online Orders &amp; Shift Analytics" if is_online_only
+             else "Orders &amp; Shift Analytics")
     st.markdown(
-        "<div class='sec'><h3>Online Orders &amp; Shift Analytics</h3>"
-        f"<div class='sec-sub'>Rolling 7-day week · {wk_start:%d %b} → "
-        f"{wk_end:%d %b %Y} &nbsp;·&nbsp; Day shift 10:00–17:00 &nbsp;·&nbsp; "
-        "Evening shift 17:00–01:00 &nbsp;·&nbsp; online = E-com / website orders"
-        "</div></div>",
+        f"<div class='sec'><h3>{title}</h3>"
+        f"<div class='sec-sub'>{scope_label} · {sh_start:%d %b} → "
+        f"{sh_end:%d %b %Y} ({win_days} days) &nbsp;·&nbsp; Day 10:00–17:00 "
+        "&nbsp;·&nbsp; Evening 17:00–01:00 &nbsp;·&nbsp; "
+        f"channels: {ch_note}</div></div>",
         unsafe_allow_html=True,
     )
 
     # ---------- KPI strip ----------
-    avg_per_day = n_online / 7.0
-    if not online_cur.empty:
-        by_day = online_cur.groupby("day").size()
+    avg_per_day = n_orders / win_days if win_days else 0
+    if not conf_cur.empty:
+        by_day = conf_cur.groupby("day").size()
         busiest_day = by_day.idxmax()
         busiest_n = int(by_day.max())
         busiest_lbl = busiest_day.strftime("%a %d %b")
     else:
         busiest_lbl, busiest_n = "—", 0
-    day_share = (n_day / n_online * 100) if n_online else 0
-    eve_share = (n_eve / n_online * 100) if n_online else 0
+    day_share = (n_day / n_orders * 100) if n_orders else 0
+    eve_share = (n_eve / n_orders * 100) if n_orders else 0
 
     kpis = "<div class='kpi-grid' style='margin-top:6px'>"
     kpis += kpi_card(
-        "Online orders · 7d", f"{n_online:,}",
-        delta_html(n_online, n_online_prev, "vs prior week"),
-        f"Prior week: {n_online_prev:,}")
+        "Orders · period", f"{n_orders:,}",
+        delta_html(n_orders, n_orders_prev, "vs prior period"),
+        f"Prior: {n_orders_prev:,}")
     kpis += kpi_card(
         "Day shift · 10–17", f"{n_day:,}",
-        delta_html(n_day, day_prev, "vs prior week"),
-        f"{day_share:.0f}% of online")
+        delta_html(n_day, day_prev, "vs prior period"),
+        f"{day_share:.0f}% of orders")
     kpis += kpi_card(
         "Evening shift · 17–01", f"{n_eve:,}",
-        delta_html(n_eve, eve_prev, "vs prior week"),
-        f"{eve_share:.0f}% of online")
+        delta_html(n_eve, eve_prev, "vs prior period"),
+        f"{eve_share:.0f}% of orders")
     kpis += kpi_card(
         "Busiest day", busiest_lbl,
-        f"{busiest_n:,} online orders",
+        f"{busiest_n:,} orders",
         f"Avg {avg_per_day:.1f} / day")
     kpis += kpi_card(
-        "Draft orders · 7d", f"{n_draft:,}",
+        "Draft orders", f"{n_draft:,}",
         "", "Odoo quotations (draft / sent)")
     kpis += kpi_card(
-        "Cancelled · 7d", f"{n_cancel:,}",
+        "Cancelled", f"{n_cancel:,}",
         "", "Orders placed then voided")
     kpis += "</div>"
     st.markdown(kpis, unsafe_allow_html=True)
 
     # ---------- Smart insights ----------
     insights = []
-    if n_online:
+    if n_orders:
         if n_eve >= n_day:
             dom, dom_n, oth_n = "evening", n_eve, n_day
         else:
             dom, dom_n, oth_n = "day", n_day, n_eve
-        dom_share = dom_n / n_online * 100 if n_online else 0
+        dom_share = dom_n / n_orders * 100 if n_orders else 0
         insights.append(
-            f"The <b>{dom} shift</b> drives <b>{dom_share:.0f}%</b> of online "
-            f"orders this week — <b>{dom_n:,}</b> vs <b>{oth_n:,}</b> on the "
+            f"The <b>{dom} shift</b> drives <b>{dom_share:.0f}%</b> of {noun} "
+            f"this period — <b>{dom_n:,}</b> vs <b>{oth_n:,}</b> on the "
             "other shift.")
-        ph = online_cur.groupby("hour").size()
+        ph = conf_cur.groupby("hour").size()
         if not ph.empty:
             peak_h = int(ph.idxmax())
             peak_hn = int(ph.max())
@@ -3603,22 +3612,22 @@ with tab_shifts:
             insights.append(
                 f"Peak hour is <b>{peak_h:02d}:00</b> with <b>{peak_hn:,}</b> "
                 f"orders — concentrate staffing around the {rush} rush.")
-        if n_online_prev:
-            d = (n_online - n_online_prev) / n_online_prev * 100
+        if n_orders_prev:
+            d = (n_orders - n_orders_prev) / n_orders_prev * 100
             insights.append(
-                f"Online volume is <b>{'up' if d >= 0 else 'down'} "
-                f"{abs(d):.0f}%</b> vs the prior week "
-                f"({n_online:,} vs {n_online_prev:,}).")
-        if not online_cur.empty:
-            bd = online_cur.groupby("day").size()
+                f"Volume is <b>{'up' if d >= 0 else 'down'} "
+                f"{abs(d):.0f}%</b> vs the prior period "
+                f"({n_orders:,} vs {n_orders_prev:,}).")
+        if not conf_cur.empty:
+            bd = conf_cur.groupby("day").size()
             qd = bd.idxmin()
             insights.append(
                 f"Busiest day <b>{busiest_lbl}</b> ({busiest_n:,}); quietest "
                 f"<b>{qd:%a %d %b}</b> ({int(bd.min()):,}).")
-        placed = n_online + n_cancel
+        placed = n_orders + n_cancel
         if placed:
             insights.append(
-                f"<b>{n_cancel:,}</b> orders were cancelled this week — "
+                f"<b>{n_cancel:,}</b> orders were cancelled this period — "
                 f"<b>{n_cancel / placed * 100:.0f}%</b> of all placed.")
         if n_off:
             insights.append(
@@ -3628,7 +3637,7 @@ with tab_shifts:
             if n_draft else
             "No draft quotations are currently pending in Odoo.")
     else:
-        insights.append("No online orders were recorded in the last 7 days.")
+        insights.append(f"No {noun} matched the current filters in this period.")
     items = "".join(f"<li>{t}</li>" for t in insights)
     st.markdown(
         "<div class='insight-card'><div class='insight-title'>◆ Smart insights"
@@ -3636,40 +3645,41 @@ with tab_shifts:
         unsafe_allow_html=True,
     )
 
-    # ---------- Daily stacked bars (online by shift) ----------
+    # ---------- Daily orders by shift (stacked) ----------
     st.markdown(
-        "<div class='sec' style='margin-top:18px'><h3>Daily online orders by shift"
-        "</h3><div class='sec-sub'>Stacked — day vs evening vs off-hours</div></div>",
+        "<div class='sec' style='margin-top:18px'><h3>Daily orders by shift</h3>"
+        "<div class='sec-sub'>Stacked — day vs evening vs off-hours</div></div>",
         unsafe_allow_html=True)
-    if n_online:
+    if n_orders:
         fig = go.Figure()
         for shift in SHIFT_ORDER:
-            yvals = [int(((online_cur["day"] == d) &
-                          (online_cur["shift"] == shift)).sum()) for d in days]
+            yvals = [int(((conf_cur["day"] == d) &
+                          (conf_cur["shift"] == shift)).sum()) for d in days]
             if shift == SHIFT_OFF_LABEL and sum(yvals) == 0:
                 continue
             fig.add_trace(go.Bar(
                 x=day_labels, y=yvals, name=shift,
                 marker=dict(color=SHIFT_COLORS[shift]),
-                text=[v if v else "" for v in yvals],
+                text=[v if (v and show_day_labels) else "" for v in yvals],
                 texttemplate="%{text}", textposition="inside",
                 insidetextanchor="middle",
                 textfont=dict(size=11, color="#0A0A0B"),
                 hovertemplate=f"<b>%{{x}}</b><br>{shift}: %{{y}} orders<extra></extra>",
             ))
-        fig.update_layout(barmode="stack", bargap=0.32)
+        fig.update_layout(barmode="stack",
+                          bargap=0.32 if win_days <= 14 else 0.08)
         st.plotly_chart(style_fig(fig, height=350), use_container_width=True)
     else:
-        st.info("No online orders in the last 7 days.")
+        st.info("No orders match the current filters.")
 
     # ---------- Shift donut + hour-of-day ----------
     c1, c2 = st.columns([2, 3])
     with c1:
         st.markdown(
             "<div class='sec'><h3>Shift split</h3>"
-            "<div class='sec-sub'>Share of online orders</div></div>",
+            "<div class='sec-sub'>Share of orders</div></div>",
             unsafe_allow_html=True)
-        if n_online:
+        if n_orders:
             labels = [SHIFT_DAY_LABEL, SHIFT_EVE_LABEL]
             vals = [n_day, n_eve]
             cols = [SHIFT_COLORS[SHIFT_DAY_LABEL], SHIFT_COLORS[SHIFT_EVE_LABEL]]
@@ -3685,8 +3695,8 @@ with tab_shifts:
                 hovertemplate="%{label}<br>%{value} orders (%{percent})<extra></extra>",
             ))
             fig.update_layout(annotations=[dict(
-                text=f"<b style='color:#F4F4F5'>{n_online:,}</b><br>"
-                     "<span style='font-size:10px;color:#A1A1AA'>online</span>",
+                text=f"<b style='color:#F4F4F5'>{n_orders:,}</b><br>"
+                     "<span style='font-size:10px;color:#A1A1AA'>orders</span>",
                 x=0.5, y=0.5, showarrow=False, font=dict(size=20))])
             st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
         else:
@@ -3696,9 +3706,9 @@ with tab_shifts:
             "<div class='sec'><h3>Orders by hour of day</h3>"
             "<div class='sec-sub'>Bar colour marks the shift each hour belongs to</div></div>",
             unsafe_allow_html=True)
-        if n_online:
+        if n_orders:
             hours = list(range(24))
-            hv = online_cur.groupby("hour").size().reindex(hours, fill_value=0)
+            hv = conf_cur.groupby("hour").size().reindex(hours, fill_value=0)
             colors = [SHIFT_COLORS[_shift_of_hour(h)] for h in hours]
             fig = go.Figure(go.Bar(
                 x=[f"{h:02d}" for h in hours], y=hv.values,
@@ -3710,19 +3720,22 @@ with tab_shifts:
         else:
             st.info("No data.")
 
-    # ---------- Day × hour heatmap ----------
+    # ---------- Weekday × hour heatmap (scales to any window) ----------
     st.markdown(
-        "<div class='sec' style='margin-top:14px'><h3>Order intensity · day × hour"
-        "</h3><div class='sec-sub'>Online order counts; brighter = busier</div></div>",
+        "<div class='sec' style='margin-top:14px'><h3>Order intensity · weekday × hour"
+        "</h3><div class='sec-sub'>Order counts aggregated across the period; "
+        "brighter = busier</div></div>",
         unsafe_allow_html=True)
-    if n_online:
-        mat = online_cur.groupby(["day", "hour"]).size().reset_index(name="n")
-        piv = (mat.pivot(index="day", columns="hour", values="n")
-               .reindex(days).reindex(columns=range(24)).fillna(0))
-        ylab = [d.strftime("%a %d %b") for d in days]
+    if n_orders:
+        hm = conf_cur.copy()
+        hm["dow"] = hm["dt_local"].dt.day_name().str[:3]
+        mat = hm.groupby(["dow", "hour"]).size().reset_index(name="n")
+        order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        piv = (mat.pivot(index="dow", columns="hour", values="n")
+               .reindex(order).reindex(columns=range(24)).fillna(0))
         text_z = [[(f"{int(v)}" if v else "") for v in row] for row in piv.values]
         fig = go.Figure(go.Heatmap(
-            z=piv.values, x=[f"{h:02d}" for h in range(24)], y=ylab,
+            z=piv.values, x=[f"{h:02d}" for h in range(24)], y=order,
             colorscale=[[0, "#0A0A0B"], [0.45, "#3a2f5e"], [1, "#A78BFA"]],
             text=text_z, texttemplate="%{text}",
             textfont=dict(size=9, color="#E4E4E7"),
@@ -3734,24 +3747,24 @@ with tab_shifts:
     else:
         st.info("No data.")
 
-    # ---------- Online vs draft daily trend ----------
+    # ---------- Orders vs draft daily trend ----------
     st.markdown(
-        "<div class='sec' style='margin-top:14px'><h3>Online vs draft · daily</h3>"
-        "<div class='sec-sub'>Order counts across the week</div></div>",
+        "<div class='sec' style='margin-top:14px'><h3>Orders vs draft · daily</h3>"
+        "<div class='sec-sub'>Order counts across the period</div></div>",
         unsafe_allow_html=True)
-    on_daily = [int((online_cur["day"] == d).sum()) if not online_cur.empty else 0
+    on_daily = [int((conf_cur["day"] == d).sum()) if not conf_cur.empty else 0
                 for d in days]
     dr_daily = [int((draft_cur["day"] == d).sum()) if not draft_cur.empty else 0
                 for d in days]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=day_labels, y=on_daily, name="Online",
-        mode="lines+markers+text",
+        x=day_labels, y=on_daily, name="Orders",
+        mode="lines+markers+text" if show_day_labels else "lines+markers",
         line=dict(width=2.6, color=PALETTE["neon"], shape="spline", smoothing=0.5),
         marker=dict(size=7, color=PALETTE["neon"]),
-        text=on_daily, textposition="top center",
+        text=on_daily if show_day_labels else None, textposition="top center",
         textfont=dict(color=PALETTE["neon"], size=10), cliponaxis=False,
-        hovertemplate="%{x}<br>%{y} online<extra></extra>"))
+        hovertemplate="%{x}<br>%{y} orders<extra></extra>"))
     fig.add_trace(go.Scatter(
         x=day_labels, y=dr_daily, name="Draft",
         mode="lines+markers",
@@ -3761,15 +3774,20 @@ with tab_shifts:
     st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
 
     # ---------- Per-day breakdown table ----------
+    MAXROWS = 45
+    capped = win_days > MAXROWS
+    days_tbl = days[-MAXROWS:] if capped else days
+    cap_note = (f"<div class='sec-sub'>Showing the most recent {MAXROWS} of "
+                f"{win_days} days</div>" if capped else "")
     st.markdown(
         "<div class='sec' style='margin-top:14px'><h3>Per-day breakdown</h3>"
-        "<div class='sec-sub'>Online orders by shift, plus drafts &amp; "
-        "cancellations</div></div>",
+        "<div class='sec-sub'>Orders by shift, plus drafts &amp; "
+        f"cancellations</div>{cap_note}</div>",
         unsafe_allow_html=True)
     tot = {"day": 0, "eve": 0, "off": 0, "on": 0, "dr": 0, "cn": 0}
     body = ""
-    for d in days:
-        dd = online_cur[online_cur["day"] == d] if not online_cur.empty else online_cur
+    for d in days_tbl:
+        dd = conf_cur[conf_cur["day"] == d] if not conf_cur.empty else conf_cur
         cday = _sc(dd, SHIFT_DAY_LABEL)
         ceve = _sc(dd, SHIFT_EVE_LABEL)
         coff = _sc(dd, SHIFT_OFF_LABEL)
@@ -3787,7 +3805,7 @@ with tab_shifts:
     st.markdown(
         "<table class='shift-table'><thead><tr>"
         "<th>Date</th><th>Day 10–17</th><th>Evening 17–01</th><th>Off 01–10</th>"
-        "<th>Total online</th><th>Draft</th><th>Cancelled</th>"
+        "<th>Total orders</th><th>Draft</th><th>Cancelled</th>"
         f"</tr></thead><tbody>{body}</tbody></table>",
         unsafe_allow_html=True)
 
