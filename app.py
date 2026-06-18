@@ -1743,6 +1743,86 @@ def fetch_online_draft_orders(start_iso, end_iso, _ttl_bucket,
     return rows
 
 
+DELIVERY_TAB_VERSION = 1   # bump to invalidate the delivery cache
+
+
+@st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
+def fetch_delivery_orders(start_iso, end_iso, _ttl_bucket,
+                          _v=DELIVERY_TAB_VERSION):
+    """Read-only: real 'Delivery Orders' outgoing pickings whose linked sale
+    order was placed in the window. Excludes in-store / PoS pickups. Returns
+    rows enriched with the order date, resolved channel and the computed
+    lead time (order placed → delivery completed, in hours)."""
+    try:
+        ptypes = kw("stock.picking.type", "search_read",
+                    [[["code", "=", "outgoing"]]],
+                    {"fields": ["name"], "limit": 100})
+    except Exception:
+        ptypes = []
+    deliv_ids = [p["id"] for p in ptypes if p.get("name") == "Delivery Orders"]
+    if not deliv_ids:
+        return []
+    domain = [
+        ["picking_type_id", "in", deliv_ids],
+        ["sale_id.date_order", ">=", start_iso],
+        ["sale_id.date_order", "<=", end_iso],
+    ]
+    fields = ["name", "state", "sale_id", "scheduled_date", "date_done",
+              "date_deadline", "has_deadline_issue", "carrier_id",
+              "carrier_price", "partner_id"]
+    try:
+        pks = kw("stock.picking", "search_read", [domain],
+                 {"fields": fields, "limit": 200000, "order": "id desc"})
+    except Exception:
+        return []
+    # Join the linked sale order (date + salesperson + company for channel)
+    sale_ids = list({p["sale_id"][0] for p in pks if p.get("sale_id")})
+    so = {}
+    for i in range(0, len(sale_ids), 500):
+        chunk = sale_ids[i:i + 500]
+        try:
+            for s in kw("sale.order", "search_read", [[["id", "in", chunk]]],
+                        {"fields": ["date_order", "user_id", "company_id",
+                                    "partner_id"], "limit": 200000}):
+                so[s["id"]] = s
+        except Exception:
+            pass
+    rows = []
+    for p in pks:
+        sid = p["sale_id"][0] if p.get("sale_id") else None
+        s = so.get(sid) if sid else None
+        if not s:
+            continue
+        cust = s["partner_id"][1] if s.get("partner_id") else "—"
+        if _is_internal_customer(cust):
+            continue
+        sp = s["user_id"][1] if s.get("user_id") else "—"
+        co = s["company_id"][1] if s.get("company_id") else None
+        channel = _customer_channel_override(cust) or resolve_channel_so(sp, co)
+        lead = None
+        if p.get("date_done") and s.get("date_order"):
+            try:
+                t0 = datetime.strptime(s["date_order"], "%Y-%m-%d %H:%M:%S")
+                t1 = datetime.strptime(p["date_done"], "%Y-%m-%d %H:%M:%S")
+                h = (t1 - t0).total_seconds() / 3600
+                if 0 <= h < 24 * 120:
+                    lead = h
+            except Exception:
+                pass
+        rows.append({
+            "name": p["name"],
+            "state": p["state"],
+            "channel": channel,
+            "carrier": (p.get("carrier_id") or [0, "(none)"])[1],
+            "carrier_price": float(p.get("carrier_price") or 0),
+            "order_date": s.get("date_order"),
+            "date_done": p.get("date_done"),
+            "lead_hours": lead,
+            "late": bool(p.get("has_deadline_issue")),
+        })
+    return rows
+
+
 def _ltr(value):
     """Prefix a value with U+200E (LEFT-TO-RIGHT MARK) so any cell that
     contains Arabic (or mixed) text aligns to the LEFT edge in tables
@@ -3808,6 +3888,234 @@ with tab_shifts:
         "<th>Total orders</th><th>Draft</th><th>Cancelled</th>"
         f"</tr></thead><tbody>{body}</tbody></table>",
         unsafe_allow_html=True)
+
+    # ======================= DELIVERY PERFORMANCE =======================
+    st.markdown(
+        "<div class='sec' style='margin-top:24px'><h3>Delivery performance</h3>"
+        "<div class='sec-sub'>Real delivery orders (excludes in-store pickups) "
+        "linked to sales placed in this period &nbsp;·&nbsp; lead time = order "
+        "placed → delivery completed</div></div>",
+        unsafe_allow_html=True)
+
+    dlv_rows = fetch_delivery_orders(
+        _s_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        _e_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        hist_bucket,
+    )
+    if dlv_rows:
+        ddf = pd.DataFrame(dlv_rows)
+        ddf = ddf[ddf["channel"].isin(selected_channels)]   # honour channel pills
+    else:
+        ddf = pd.DataFrame(columns=[
+            "state", "channel", "carrier", "carrier_price",
+            "order_date", "date_done", "lead_hours", "late"])
+
+    if not ddf.empty:
+        ddf["order_dt"] = ddf["order_date"].apply(
+            lambda s: _to_local_dt(s, TZ) if s else None)
+        ddf["shift"] = ddf["order_dt"].apply(
+            lambda d: _shift_of_hour(d.hour) if d is not None else None)
+        ddf["day"] = ddf["order_dt"].apply(
+            lambda d: d.date() if d is not None else None)
+
+    done_d = ddf[ddf["state"] == "done"] if not ddf.empty else ddf
+    pend_d = (ddf[ddf["state"].isin(["assigned", "confirmed", "waiting"])]
+              if not ddf.empty else ddf)
+    canc_d = ddf[ddf["state"] == "cancel"] if not ddf.empty else ddf
+    lead = done_d["lead_hours"].dropna().tolist() if not done_d.empty else []
+
+    def _fmt_h(h):
+        if h is None:
+            return "—"
+        if h < 1:
+            return f"{h * 60:.0f} min"
+        if h < 48:
+            return f"{h:.1f} h"
+        return f"{h / 24:.1f} d"
+
+    def _median(xs):
+        if not xs:
+            return None
+        xs = sorted(xs)
+        n = len(xs)
+        return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+    med_lead = _median(lead)
+    p90_lead = (sorted(lead)[min(len(lead) - 1, int(len(lead) * 0.9))]
+                if lead else None)
+    within2 = (sum(1 for x in lead if x <= 2) / len(lead) * 100) if lead else 0
+    within24 = (sum(1 for x in lead if x <= 24) / len(lead) * 100) if lead else 0
+    SHIFT_SHORT = {SHIFT_DAY_LABEL: "day", SHIFT_EVE_LABEL: "evening",
+                   SHIFT_OFF_LABEL: "off-hours"}
+
+    if ddf.empty:
+        st.info("No delivery orders linked to sales under the current filters.")
+    else:
+        if not ddf.empty and "carrier" in ddf:
+            cm_all = ddf["carrier"].value_counts()
+            top_carrier = str(cm_all.index[0])
+            top_share = cm_all.iloc[0] / len(ddf) * 100
+        else:
+            top_carrier, top_share = "—", 0
+
+        dk = "<div class='kpi-grid' style='margin-top:6px'>"
+        dk += kpi_card("Deliveries · period", f"{len(ddf):,}",
+                       "", f"{len(done_d):,} completed")
+        dk += kpi_card("Typical lead time", _fmt_h(med_lead),
+                       "median order → delivered", f"p90: {_fmt_h(p90_lead)}")
+        dk += kpi_card("Within 2 hours", f"{within2:.0f}%",
+                       "of completed deliveries", f"Within 24h: {within24:.0f}%")
+        dk += kpi_card("In transit", f"{len(pend_d):,}",
+                       "assigned / awaiting", "not yet delivered")
+        dk += kpi_card("Top carrier", top_carrier,
+                       f"{top_share:.0f}% of deliveries", "")
+        dk += kpi_card("Cancelled", f"{len(canc_d):,}",
+                       "", "delivery orders voided")
+        dk += "</div>"
+        st.markdown(dk, unsafe_allow_html=True)
+
+        # ---- Delivery insights ----
+        dins = []
+        if lead:
+            dins.append(
+                f"Typical delivery completes in <b>{_fmt_h(med_lead)}</b> "
+                f"(median); 90% land within <b>{_fmt_h(p90_lead)}</b>.")
+            dins.append(
+                f"<b>{within2:.0f}%</b> of deliveries finish within 2 hours and "
+                f"<b>{within24:.0f}%</b> within a day.")
+            sh_med = {}
+            for sh in SHIFT_ORDER:
+                vals = done_d[done_d["shift"] == sh]["lead_hours"].dropna().tolist()
+                if vals:
+                    sh_med[sh] = _median(vals)
+            if len(sh_med) >= 2:
+                fast = min(sh_med, key=sh_med.get)
+                slow = max(sh_med, key=sh_med.get)
+                dins.append(
+                    f"Orders placed in the <b>{SHIFT_SHORT.get(fast, fast)}</b> "
+                    f"shift are delivered fastest (median "
+                    f"{_fmt_h(sh_med[fast])}), slowest from the "
+                    f"<b>{SHIFT_SHORT.get(slow, slow)}</b> shift "
+                    f"({_fmt_h(sh_med[slow])}).")
+            slowtail = [x for x in lead if x > 48]
+            if slowtail:
+                dins.append(
+                    f"<b>{len(slowtail)}</b> deliveries took over 2 days "
+                    f"(slowest {_fmt_h(max(lead))}) — these drag the average to "
+                    f"{_fmt_h(sum(lead) / len(lead))}; worth investigating.")
+        if len(pend_d):
+            dins.append(
+                f"<b>{len(pend_d)}</b> deliveries are currently in transit / "
+                "awaiting dispatch.")
+        if len(canc_d):
+            dins.append(
+                f"<b>{len(canc_d)}</b> delivery orders were cancelled this period.")
+        if not dins:
+            dins.append("No completed deliveries with usable timing in this period.")
+        ditems = "".join(f"<li>{t}</li>" for t in dins)
+        st.markdown(
+            "<div class='insight-card'><div class='insight-title'>◆ Delivery "
+            f"insights</div><ul class='insight-list'>{ditems}</ul></div>",
+            unsafe_allow_html=True)
+
+        # ---- Distribution + carrier ----
+        d1, d2 = st.columns(2)
+        with d1:
+            st.markdown(
+                "<div class='sec'><h3>Delivery-time distribution</h3>"
+                "<div class='sec-sub'>Completed deliveries by lead-time bucket</div></div>",
+                unsafe_allow_html=True)
+            if lead:
+                buckets = ["<1h", "1–2h", "2–6h", "6–24h", "1–2d", ">2d"]
+
+                def _bk(h):
+                    if h < 1:
+                        return "<1h"
+                    if h < 2:
+                        return "1–2h"
+                    if h < 6:
+                        return "2–6h"
+                    if h < 24:
+                        return "6–24h"
+                    if h < 48:
+                        return "1–2d"
+                    return ">2d"
+                bc = {b: 0 for b in buckets}
+                for x in lead:
+                    bc[_bk(x)] += 1
+                fig = go.Figure(go.Bar(
+                    x=buckets, y=[bc[b] for b in buckets],
+                    marker=dict(color=PALETTE["neon"]),
+                    text=[bc[b] or "" for b in buckets],
+                    texttemplate="%{text}", textposition="outside",
+                    textfont=dict(color=PALETTE["text_dim"], size=10),
+                    cliponaxis=False,
+                    hovertemplate="%{x}<br>%{y} deliveries<extra></extra>"))
+                st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                                use_container_width=True)
+            else:
+                st.info("No completed deliveries.")
+        with d2:
+            st.markdown(
+                "<div class='sec'><h3>By carrier</h3>"
+                "<div class='sec-sub'>Share of delivery orders</div></div>",
+                unsafe_allow_html=True)
+            cm = ddf["carrier"].value_counts()
+            fig = go.Figure(go.Pie(
+                labels=cm.index.tolist(), values=cm.values.tolist(), hole=0.62,
+                marker=dict(line=dict(color=PALETTE["surface"], width=2)),
+                textinfo="percent",
+                hovertemplate="%{label}<br>%{value} (%{percent})<extra></extra>"))
+            fig.update_layout(annotations=[dict(
+                text=f"<b style='color:#F4F4F5'>{len(ddf):,}</b><br>"
+                     "<span style='font-size:10px;color:#A1A1AA'>deliveries</span>",
+                x=0.5, y=0.5, showarrow=False, font=dict(size=18))])
+            st.plotly_chart(style_fig(fig, height=300), use_container_width=True)
+
+        # ---- Lead time by shift + daily completed ----
+        d3, d4 = st.columns(2)
+        with d3:
+            st.markdown(
+                "<div class='sec'><h3>Median delivery time by order shift</h3>"
+                "<div class='sec-sub'>Does the evening rush slow fulfilment?</div></div>",
+                unsafe_allow_html=True)
+            sh_present = ([sh for sh in SHIFT_ORDER
+                           if not done_d[done_d["shift"] == sh]["lead_hours"]
+                           .dropna().empty] if not done_d.empty else [])
+            if sh_present:
+                meds = [_median(done_d[done_d["shift"] == sh]["lead_hours"]
+                                .dropna().tolist()) for sh in sh_present]
+                fig = go.Figure(go.Bar(
+                    x=[s.split(" ·")[0] for s in sh_present], y=meds,
+                    marker=dict(color=[SHIFT_COLORS[s] for s in sh_present]),
+                    text=[_fmt_h(v) for v in meds],
+                    textposition="outside",
+                    textfont=dict(color=PALETTE["text_dim"], size=10),
+                    cliponaxis=False,
+                    hovertemplate="%{x}<br>median %{y:.1f} h<extra></extra>"))
+                st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                                use_container_width=True)
+            else:
+                st.info("No data.")
+        with d4:
+            st.markdown(
+                "<div class='sec'><h3>Deliveries completed · daily</h3>"
+                "<div class='sec-sub'>Across the period</div></div>",
+                unsafe_allow_html=True)
+            if not done_d.empty:
+                dd_daily = [int((done_d["day"] == d).sum()) for d in days]
+                fig = go.Figure(go.Bar(
+                    x=day_labels, y=dd_daily,
+                    marker=dict(color=PALETTE["sky"]),
+                    text=[v if (v and show_day_labels) else "" for v in dd_daily],
+                    texttemplate="%{text}", textposition="outside",
+                    textfont=dict(color=PALETTE["text_dim"], size=10),
+                    cliponaxis=False,
+                    hovertemplate="%{x}<br>%{y} delivered<extra></extra>"))
+                st.plotly_chart(style_fig(fig, height=300, show_legend=False),
+                                use_container_width=True)
+            else:
+                st.info("No data.")
 
 
 with tab_pace:
