@@ -4135,18 +4135,19 @@ with tab_shifts:
         with fc1:
             cars_now = st.number_input(
                 "Delivery cars available now", min_value=1, max_value=50,
-                value=3, step=1, key="fleet_cars")
+                value=5, step=1, key="fleet_cars")
         with fc2:
             rt_min = st.number_input(
                 "Round-trip minutes per delivery", min_value=10, max_value=240,
-                value=40, step=5, key="fleet_rt",
-                help="How long one car is tied up per run: drive out + hand over + return")
+                value=20, step=5, key="fleet_rt",
+                help="How long one car is tied up per run: drive out + hand over + return. "
+                     "Median delivery completion in your data is ~12-20 min.")
         with fc3:
             batch = st.number_input(
                 "Orders carried per trip", min_value=1, max_value=10,
-                value=3, step=1, key="fleet_batch",
+                value=1, step=1, key="fleet_batch",
                 help="How many deliveries a driver takes on a single run. "
-                     "Most multi-drop operations carry 3-5; set 1 if each run is a single order.")
+                     "Set higher if drivers carry multiple orders per trip.")
 
         # Demand from completion times within the current filters
         dd2 = (done_d.dropna(subset=["done_hour", "done_day"])
