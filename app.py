@@ -10,6 +10,7 @@ Data source: Odoo XMLRPC. 100% READ-ONLY (search_read only).
 """
 import os
 import base64
+import math
 import re
 import textwrap
 import uuid
@@ -3917,6 +3918,13 @@ with tab_shifts:
             lambda d: _shift_of_hour(d.hour) if d is not None else None)
         ddf["day"] = ddf["order_dt"].apply(
             lambda d: d.date() if d is not None else None)
+        # completion timestamps drive the fleet-capacity model below
+        ddf["done_dt"] = ddf["date_done"].apply(
+            lambda s: _to_local_dt(s, TZ) if s else None)
+        ddf["done_hour"] = ddf["done_dt"].apply(
+            lambda d: d.hour if d is not None else None)
+        ddf["done_day"] = ddf["done_dt"].apply(
+            lambda d: d.date() if d is not None else None)
 
     done_d = ddf[ddf["state"] == "done"] if not ddf.empty else ddf
     pend_d = (ddf[ddf["state"].isin(["assigned", "confirmed", "waiting"])]
@@ -4116,6 +4124,114 @@ with tab_shifts:
                                 use_container_width=True)
             else:
                 st.info("No data.")
+
+        # ============ FLEET CAPACITY — do you need another car? ============
+        st.markdown(
+            "<div class='sec' style='margin-top:20px'><h3>Fleet capacity · do you "
+            "need another delivery car?</h3><div class='sec-sub'>Set the three "
+            "inputs to match your operation — the verdict recalculates live</div></div>",
+            unsafe_allow_html=True)
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            cars_now = st.number_input(
+                "Delivery cars available now", min_value=1, max_value=50,
+                value=3, step=1, key="fleet_cars")
+        with fc2:
+            rt_min = st.number_input(
+                "Round-trip minutes per delivery", min_value=10, max_value=240,
+                value=40, step=5, key="fleet_rt",
+                help="How long one car is tied up per run: drive out + hand over + return")
+        with fc3:
+            batch = st.number_input(
+                "Orders carried per trip", min_value=1, max_value=10,
+                value=3, step=1, key="fleet_batch",
+                help="How many deliveries a driver takes on a single run. "
+                     "Most multi-drop operations carry 3-5; set 1 if each run is a single order.")
+
+        # Demand from completion times within the current filters
+        dd2 = (done_d.dropna(subset=["done_hour", "done_day"])
+               if not done_d.empty else done_d)
+        active_days = dd2["done_day"].nunique() if not dd2.empty else 0
+        if active_days and not dd2.empty:
+            daily_peak = dd2.groupby("done_day")["done_hour"].apply(
+                lambda s: int(s.value_counts().max()))
+            typical_peak = float(daily_peak.mean())
+            worst_peak = int(daily_peak.max())
+            avg_per_day = len(dd2) / active_days
+        else:
+            typical_peak = worst_peak = avg_per_day = 0
+
+        per_car_cap = (60.0 / rt_min) * batch          # deliveries / hour / car
+        fleet_cap = cars_now * per_car_cap
+        req_typical = math.ceil(typical_peak / per_car_cap) if per_car_cap else 0
+        req_worst = math.ceil(worst_peak / per_car_cap) if per_car_cap else 0
+        util_typical = (typical_peak / fleet_cap * 100) if fleet_cap else 0
+
+        if req_typical <= cars_now and req_worst <= cars_now:
+            verdict = (f"Your <b>{cars_now}</b> car(s) cover both the typical evening "
+                       f"peak (~{typical_peak:.0f}/hr) and the busiest hours seen "
+                       f"({worst_peak}/hr). No extra car needed — peak utilisation "
+                       f"is {util_typical:.0f}%.")
+            vcolor = "#22C55E"
+        elif req_typical <= cars_now:
+            verdict = (f"Your <b>{cars_now}</b> car(s) handle the typical peak "
+                       f"(~{typical_peak:.0f}/hr, {util_typical:.0f}% utilised) but "
+                       f"fall short on the busiest hours ({worst_peak}/hr needs "
+                       f"{req_worst}). Consider <b>1 on-call car</b> for peak evenings "
+                       "rather than a permanent addition.")
+            vcolor = "#F5B544"
+        else:
+            verdict = (f"Your <b>{cars_now}</b> car(s) are below the typical peak of "
+                       f"~{typical_peak:.0f}/hr, which needs <b>{req_typical}</b> cars. "
+                       f"Add <b>{max(0, req_typical - cars_now)}</b> to keep up at peak "
+                       f"(up to {req_worst} on the very busiest hours).")
+            vcolor = "#F87171"
+
+        ck = "<div class='kpi-grid' style='margin-top:6px'>"
+        ck += kpi_card("Typical peak demand", f"{typical_peak:.0f}/hr",
+                       "avg of each day's busiest hour",
+                       f"Busiest seen: {worst_peak}/hr")
+        ck += kpi_card("Capacity per car", f"{per_car_cap:.1f}/hr",
+                       f"at {rt_min} min · {batch}/trip", "")
+        ck += kpi_card("Fleet capacity", f"{fleet_cap:.1f}/hr",
+                       f"{cars_now} car(s)",
+                       f"Peak utilisation: {util_typical:.0f}%")
+        ck += kpi_card("Cars needed at peak", f"{req_typical}",
+                       "for the typical peak",
+                       f"Busiest hours: {req_worst}")
+        ck += "</div>"
+        st.markdown(ck, unsafe_allow_html=True)
+
+        st.markdown(
+            f"<div class='insight-card' style='border-color:{vcolor}55'>"
+            f"<div class='insight-title' style='color:{vcolor}'>◆ Verdict</div>"
+            f"<div style='color:#E4E4E7;font-size:13.5px;line-height:1.7'>{verdict}"
+            "</div></div>", unsafe_allow_html=True)
+
+        st.markdown(
+            "<div class='sec' style='margin-top:14px'><h3>Hourly delivery demand vs "
+            "fleet capacity</h3><div class='sec-sub'>Avg deliveries completed per "
+            "hour on an active day; bars above the line exceed current capacity</div></div>",
+            unsafe_allow_html=True)
+        if active_days and not dd2.empty:
+            hours = list(range(24))
+            prof = (dd2.groupby("done_hour").size().reindex(hours, fill_value=0)
+                    / active_days)
+            bar_colors = [("#F87171" if prof[h] > fleet_cap else PALETTE["neon"])
+                          for h in hours]
+            fig = go.Figure(go.Bar(
+                x=[f"{h:02d}" for h in hours], y=prof.values,
+                marker=dict(color=bar_colors),
+                hovertemplate="%{x}:00<br>%{y:.1f} deliveries/hr<extra></extra>"))
+            fig.add_hline(
+                y=fleet_cap, line=dict(color="#A78BFA", width=2, dash="dash"),
+                annotation_text=f"capacity {fleet_cap:.1f}/hr",
+                annotation_position="top left",
+                annotation_font_color="#A78BFA")
+            st.plotly_chart(style_fig(fig, height=320, show_legend=False),
+                            use_container_width=True)
+        else:
+            st.info("No completed deliveries to model.")
 
 
 with tab_pace:
