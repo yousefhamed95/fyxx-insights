@@ -4156,11 +4156,12 @@ with tab_shifts:
         if active_days and not dd2.empty:
             daily_peak = dd2.groupby("done_day")["done_hour"].apply(
                 lambda s: int(s.value_counts().max()))
-            typical_peak = float(daily_peak.mean())
-            worst_peak = int(daily_peak.max())
+            typical_peak = float(daily_peak.mean())              # normal busy hour
+            worst_peak = int(round(daily_peak.quantile(0.90)))   # busy-night peak (p90)
+            extreme_peak = int(daily_peak.max())                 # single busiest hour ever
             avg_per_day = len(dd2) / active_days
         else:
-            typical_peak = worst_peak = avg_per_day = 0
+            typical_peak = worst_peak = extreme_peak = avg_per_day = 0
 
         per_car_cap = (60.0 / rt_min) * batch          # deliveries / hour / car
         fleet_cap = cars_now * per_car_cap
@@ -4168,46 +4169,72 @@ with tab_shifts:
         req_worst = math.ceil(worst_peak / per_car_cap) if per_car_cap else 0
         util_typical = (typical_peak / fleet_cap * 100) if fleet_cap else 0
 
-        if req_typical <= cars_now and req_worst <= cars_now:
-            verdict = (f"Your <b>{cars_now}</b> car(s) cover both the typical evening "
+        # How many cars to add, given what they have now
+        add_permanent = max(0, req_typical - cars_now)   # to cover the typical peak
+        add_spikes = max(0, req_worst - cars_now)         # to cover the worst hours
+
+        if add_permanent == 0 and add_spikes == 0:
+            headline = "No increase needed"
+            big = "0"
+            verdict = (f"Your <b>{cars_now}</b> cars cover both the typical evening "
                        f"peak (~{typical_peak:.0f}/hr) and the busiest hours seen "
-                       f"({worst_peak}/hr). No extra car needed — peak utilisation "
-                       f"is {util_typical:.0f}%.")
+                       f"({worst_peak}/hr). Peak utilisation is {util_typical:.0f}%. "
+                       "Keep the fleet as-is.")
             vcolor = "#22C55E"
-        elif req_typical <= cars_now:
-            verdict = (f"Your <b>{cars_now}</b> car(s) handle the typical peak "
-                       f"(~{typical_peak:.0f}/hr, {util_typical:.0f}% utilised) but "
-                       f"fall short on the busiest hours ({worst_peak}/hr needs "
-                       f"{req_worst}). Consider <b>1 on-call car</b> for peak evenings "
-                       "rather than a permanent addition.")
+        elif add_permanent == 0:
+            headline = "No permanent increase — keep cars on-call for spikes"
+            big = f"+{add_spikes} on-call"
+            verdict = (f"Your <b>{cars_now}</b> cars cover the typical evening peak "
+                       f"(~{typical_peak:.0f}/hr) at {util_typical:.0f}% utilisation, "
+                       "so no permanent car is required. The very busiest hours "
+                       f"({worst_peak}/hr) would need up to <b>{req_worst}</b> cars — "
+                       f"keep <b>{add_spikes}</b> on-call / part-time for those "
+                       "spikes rather than buying permanently.")
             vcolor = "#F5B544"
         else:
-            verdict = (f"Your <b>{cars_now}</b> car(s) are below the typical peak of "
-                       f"~{typical_peak:.0f}/hr, which needs <b>{req_typical}</b> cars. "
-                       f"Add <b>{max(0, req_typical - cars_now)}</b> to keep up at peak "
-                       f"(up to {req_worst} on the very busiest hours).")
+            headline = f"Increase your fleet by {add_permanent} car(s)"
+            big = f"+{add_permanent}"
+            verdict = (f"Your <b>{cars_now}</b> cars are below the typical evening "
+                       f"peak of ~{typical_peak:.0f}/hr, which needs "
+                       f"<b>{req_typical}</b> cars. <b>Add {add_permanent}</b> "
+                       f"permanently (5 → {req_typical}) to keep up on a normal "
+                       f"night; the very busiest hours ({worst_peak}/hr) would need "
+                       f"up to {req_worst}, so consider {max(0, add_spikes - add_permanent)} "
+                       "more on-call on top.")
             vcolor = "#F87171"
 
         ck = "<div class='kpi-grid' style='margin-top:6px'>"
+        ck += kpi_card("Cars now", f"{cars_now}",
+                       "current fleet",
+                       f"Fleet capacity {fleet_cap:.1f}/hr")
         ck += kpi_card("Typical peak demand", f"{typical_peak:.0f}/hr",
                        "avg of each day's busiest hour",
-                       f"Busiest seen: {worst_peak}/hr")
+                       f"Busy night (p90): {worst_peak}/hr · max {extreme_peak}/hr")
+        ck += kpi_card("Recommended fleet", f"{req_typical}",
+                       "to cover the typical peak",
+                       f"Busy nights need {req_worst}")
+        ck += kpi_card("Cars to ADD", f"{add_permanent}",
+                       "permanent, vs what you have",
+                       f"Peak utilisation: {util_typical:.0f}%")
+        ck += kpi_card("On-call for spikes", f"{add_spikes}",
+                       "extra cars for worst hours", "part-time / surge")
         ck += kpi_card("Capacity per car", f"{per_car_cap:.1f}/hr",
                        f"at {rt_min} min · {batch}/trip", "")
-        ck += kpi_card("Fleet capacity", f"{fleet_cap:.1f}/hr",
-                       f"{cars_now} car(s)",
-                       f"Peak utilisation: {util_typical:.0f}%")
-        ck += kpi_card("Cars needed at peak", f"{req_typical}",
-                       "for the typical peak",
-                       f"Busiest hours: {req_worst}")
         ck += "</div>"
         st.markdown(ck, unsafe_allow_html=True)
 
         st.markdown(
-            f"<div class='insight-card' style='border-color:{vcolor}55'>"
-            f"<div class='insight-title' style='color:{vcolor}'>◆ Verdict</div>"
+            f"<div class='insight-card' style='border-color:{vcolor}55;"
+            "display:flex;align-items:center;gap:20px'>"
+            f"<div style='font-size:30px;font-weight:800;color:{vcolor};"
+            "min-width:120px;text-align:center;line-height:1.1'>"
+            f"{big}<div style='font-size:10px;font-weight:600;color:#A1A1AA;"
+            "text-transform:uppercase;letter-spacing:0.10em;margin-top:4px'>"
+            "cars</div></div>"
+            f"<div><div class='insight-title' style='color:{vcolor}'>"
+            f"◆ Recommendation — {headline}</div>"
             f"<div style='color:#E4E4E7;font-size:13.5px;line-height:1.7'>{verdict}"
-            "</div></div>", unsafe_allow_html=True)
+            "</div></div></div>", unsafe_allow_html=True)
 
         st.markdown(
             "<div class='sec' style='margin-top:14px'><h3>Hourly delivery demand vs "
