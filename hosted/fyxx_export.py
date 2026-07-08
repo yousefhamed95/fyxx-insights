@@ -221,7 +221,8 @@ def fetch_orders():
              [[["date_order", ">=", START_ISO], ["date_order", "<=", END_ISO],
                ["state", "in", ["sale", "done"]]]],
              {"fields": ["name", "partner_id", "user_id", "company_id",
-                         "amount_untaxed", "amount_tax", "date_order", "margin"],
+                         "amount_untaxed", "amount_tax", "date_order", "margin",
+                         "state"],
               "limit": 200000, "order": "date_order asc"})
     print(f"  sale.order rows: {len(sos)}")
 
@@ -231,7 +232,8 @@ def fetch_orders():
                 ["state", "in", ["paid", "done", "invoiced"]],
                 ["config_id", "not in", EXCLUDED_POS_CONFIG_IDS]]],
               {"fields": ["name", "partner_id", "user_id", "config_id",
-                          "amount_total", "amount_tax", "date_order", "margin"],
+                          "amount_total", "amount_tax", "date_order", "margin",
+                          "state"],
                "limit": 200000, "order": "date_order asc"})
     print(f"  pos.order rows: {len(poss)}")
 
@@ -241,13 +243,14 @@ def fetch_orders():
         salesperson = o["user_id"][1] if o.get("user_id") else "—"
         company = o["company_id"][1] if o.get("company_id") else None
         rows.append({
-            "order_id": o["id"], "ts": parse_odoo_ts(o["date_order"]),
+            "order_id": o["id"], "name": o.get("name") or "",
+            "ts": parse_odoo_ts(o["date_order"]),
             "channel": resolve_channel_so(salesperson, company),
             "customer": customer, "salesperson": salesperson,
             "amount": float(o.get("amount_untaxed") or 0),
             "vat": float(o.get("amount_tax") or 0),
             "margin": float(o.get("margin") or 0),
-            "source": 0, "pos": False,
+            "source": 0, "pos": False, "state": o.get("state") or "sale",
         })
     for o in poss:
         cid = o["config_id"][0] if o.get("config_id") else None
@@ -257,12 +260,13 @@ def fetch_orders():
         salesperson = o["user_id"][1] if o.get("user_id") else "—"
         net = (o.get("amount_total") or 0) - (o.get("amount_tax") or 0)
         rows.append({
-            "order_id": o["id"], "ts": parse_odoo_ts(o["date_order"]),
+            "order_id": o["id"], "name": o.get("name") or "",
+            "ts": parse_odoo_ts(o["date_order"]),
             "channel": channel, "customer": customer,
             "salesperson": salesperson, "amount": net,
             "vat": float(o.get("amount_tax") or 0),
             "margin": float(o.get("margin") or 0),
-            "source": 1, "pos": True,
+            "source": 1, "pos": True, "state": o.get("state") or "paid",
         })
 
     rows = [r for r in rows if not _is_internal_customer(r["customer"])]
@@ -423,85 +427,70 @@ def fetch_deliveries():
 
 
 # =============================================================================
-# 4) Product aggregates per (month, product)
+# 4) Order lines (full line-level export, matched to orders via src+order_id)
 # =============================================================================
-def fetch_products():
-    print("Fetching order lines for product aggregates...")
-    # Fetch order ids -> ts maps in bulk (needed to month-bucket the lines)
-    agg = defaultdict(lambda: [0.0, 0.0, 0.0])   # (month, pid) -> [qty, rev, mg]
+def fetch_lines():
+    """Return (lines, pinfo).
+
+    lines: list of (src, order_id, product_id, qty, revenue, margin)
+      src 0 = Sales Order, 1 = POS Ticket — matches orders.json src, so
+      the front-end can filter lines by the channel-filtered order set
+      exactly like app.py's (source, order_id) membership trick.
+    pinfo: pid -> (name, subcategory w/ Spirits rollup, group, supplier)
+    """
+    print("Fetching order lines (full)...")
+    lines = []
     pids = set()
 
-    # ---- sale.order.line (chunk by quarter to bound payloads) ----
     q_start = HIST_START
     while q_start < NOW:
         q_end = min(q_start + timedelta(days=92), NOW)
         try:
-            lines = kw("sale.order.line", "search_read",
+            batch = kw("sale.order.line", "search_read",
                        [[["order_id.date_order", ">=", utc_str(q_start)],
                          ["order_id.date_order", "<", utc_str(q_end)],
                          ["order_id.state", "in", ["sale", "done"]]]],
                        {"fields": ["product_id", "product_uom_qty",
-                                   "price_subtotal", "margin", "order_id",
-                                   "create_date"],
+                                   "price_subtotal", "margin", "order_id"],
                         "limit": 500000})
         except Exception:
-            lines = []
-        # month bucket via order date -> need order dates; use create_date approx?
-        # Better: read order dates for the chunk's order ids.
-        oids = list({l["order_id"][0] for l in lines if l.get("order_id")})
-        odate = {}
-        for i in range(0, len(oids), 1000):
-            try:
-                for o in kw("sale.order", "read", [oids[i:i + 1000]],
-                            {"fields": ["date_order"]}):
-                    odate[o["id"]] = o["date_order"]
-            except Exception:
-                pass
-        for l in lines:
+            batch = []
+        for l in batch:
             if not l.get("product_id") or not l.get("order_id"):
                 continue
-            od = odate.get(l["order_id"][0])
-            if not od:
-                continue
-            dt = datetime.fromtimestamp(parse_odoo_ts(od), TZ)
-            key = (f"{dt:%Y-%m}", l["product_id"][0])
-            a = agg[key]
-            a[0] += float(l.get("product_uom_qty") or 0)
-            a[1] += float(l.get("price_subtotal") or 0)
-            a[2] += float(l.get("margin") or 0)
-            pids.add(l["product_id"][0])
+            pid = l["product_id"][0]
+            pids.add(pid)
+            lines.append((0, l["order_id"][0], pid,
+                          r2(l.get("product_uom_qty")),
+                          r2(l.get("price_subtotal")), r2(l.get("margin"))))
         q_start = q_end
 
-    # ---- pos.order.line (chunk by month — higher volume) ----
     m_start = HIST_START
     while m_start < NOW:
         m_end = min(m_start + timedelta(days=31), NOW)
         try:
-            lines = kw("pos.order.line", "search_read",
+            batch = kw("pos.order.line", "search_read",
                        [[["order_id.date_order", ">=", utc_str(m_start)],
                          ["order_id.date_order", "<", utc_str(m_end)],
                          ["order_id.state", "in", ["paid", "done", "invoiced"]],
                          ["order_id.config_id", "not in",
                           EXCLUDED_POS_CONFIG_IDS]]],
                        {"fields": ["product_id", "qty", "price_subtotal",
-                                   "margin"],
+                                   "margin", "order_id"],
                         "limit": 500000})
         except Exception:
-            lines = []
-        mkey = f"{m_start.astimezone(TZ):%Y-%m}"
-        for l in lines:
-            if not l.get("product_id"):
+            batch = []
+        for l in batch:
+            if not l.get("product_id") or not l.get("order_id"):
                 continue
-            key = (mkey, l["product_id"][0])
-            a = agg[key]
-            a[0] += float(l.get("qty") or 0)
-            a[1] += float(l.get("price_subtotal") or 0)
-            a[2] += float(l.get("margin") or 0)
-            pids.add(l["product_id"][0])
+            pid = l["product_id"][0]
+            pids.add(pid)
+            lines.append((1, l["order_id"][0], pid,
+                          r2(l.get("qty")),
+                          r2(l.get("price_subtotal")), r2(l.get("margin"))))
         m_start = m_end
-    print(f"  aggregate cells: {len(agg)}   products: {len(pids)}")
+    print(f"  lines: {len(lines)}   products: {len(pids)}")
 
-    # Product dicts: name, subcategory (with Spirits rollup), group, supplier
     pinfo = {}
     plist = list(pids)
     for i in range(0, len(plist), 1000):
@@ -533,24 +522,28 @@ def fetch_products():
                         if raw else "No vendor tag")
             pinfo[r["id"]] = (_clean_product_name(r.get("name")), sub,
                               group, supplier)
-    return agg, pinfo
+    return lines, pinfo
 
 
 # =============================================================================
-# 5) P&L expense lines by month
+# 5) P&L expense lines — per (day, account) so ANY window is exact
 # =============================================================================
 def fetch_pnl():
+    """Returns (rows, accounts).
+    rows: (dayKey 'YYYY-MM-DD', accountIdx, amount) aggregated per day+account
+    accounts: [{code, name, type}] — front-end applies the same COGS-skip,
+    depreciation and Parent:Child bucket rules as app.py."""
     print("Fetching P&L expense balances...")
     try:
         accs = kw("account.account", "search_read", [[]],
                   {"fields": ["id", "name", "code", "account_type"],
                    "limit": 5000})
     except Exception:
-        return []
+        return [], []
     exp = {a["id"]: a for a in accs
            if "expense" in str(a.get("account_type") or "").lower()}
     if not exp:
-        return []
+        return [], []
     try:
         lines = kw("account.move.line", "search_read",
                    [[["account_id", "in", list(exp.keys())],
@@ -562,15 +555,25 @@ def fetch_pnl():
     except Exception:
         lines = []
     print(f"  expense move lines: {len(lines)}")
-    agg = defaultdict(float)   # (month, bucket) -> amount
+    aid_list = sorted(exp.keys())
+    aid_idx = {aid: i for i, aid in enumerate(aid_list)}
+    agg = defaultdict(float)   # (day, accIdx) -> signed amount
     for l in lines:
         if not l.get("account_id") or not l.get("date"):
             continue
-        a = exp.get(l["account_id"][0])
-        bucket = _pnl_category_of(a.get("name") if a else "")
-        month = str(l["date"])[:7]
-        agg[(month, bucket)] += float(l.get("debit") or 0) - float(l.get("credit") or 0)
-    return [{"m": m, "b": b, "v": r2(v)} for (m, b), v in sorted(agg.items())]
+        aid = l["account_id"][0]
+        if aid not in aid_idx:
+            continue
+        day = str(l["date"])[:10]
+        agg[(day, aid_idx[aid])] += (float(l.get("debit") or 0)
+                                     - float(l.get("credit") or 0))
+    rows = [(d, a, r2(v)) for (d, a), v in sorted(agg.items())
+            if abs(v) >= 0.005]
+    accounts = [{"code": exp[aid].get("code") or "",
+                 "name": exp[aid].get("name") or "",
+                 "type": exp[aid].get("account_type") or ""}
+                for aid in aid_list]
+    return rows, accounts
 
 
 # =============================================================================
@@ -580,8 +583,9 @@ def build_files():
     files = {}
 
     orders = fetch_orders()
-    ch_i, cu_i, sp_i = Interner(), Interner(), Interner()
+    ch_i, cu_i, sp_i, st_i = Interner(), Interner(), Interner(), Interner()
     o_ts, o_ch, o_cu, o_sp, o_amt, o_vat, o_mg, o_src = [], [], [], [], [], [], [], []
+    o_nm, o_oid, o_st = [], [], []
     for r in sorted(orders, key=lambda x: x["ts"]):
         o_ts.append(r["ts"])
         o_ch.append(ch_i.idx(r["channel"]))
@@ -591,11 +595,15 @@ def build_files():
         o_vat.append(r2(r["vat"]))
         o_mg.append(r2(r["margin"]))
         o_src.append(r["source"])
+        o_nm.append(r["name"])
+        o_oid.append(r["order_id"])
+        o_st.append(st_i.idx(r["state"]))
     files["orders.json"] = {
         "ts": o_ts, "ch": o_ch, "cu": o_cu, "sp": o_sp,
         "amt": o_amt, "vat": o_vat, "mg": o_mg, "src": o_src,
+        "nm": o_nm, "oid": o_oid, "st": o_st,
         "channels": ch_i.list, "customers": cu_i.list,
-        "salespeople": sp_i.list,
+        "salespeople": sp_i.list, "states": st_i.list,
     }
 
     states = fetch_states()
@@ -618,18 +626,21 @@ def build_files():
         "channels": ch_i.list,
     }
 
-    agg, pinfo = fetch_products()
+    lines, pinfo = fetch_lines()
     p_i = Interner()
-    months_i = Interner()
-    rows = []
-    for (month, pid), (q, rev, mg) in agg.items():
-        info = pinfo.get(pid)
-        if not info:
+    l_src, l_oid, l_p, l_q, l_r, l_g = [], [], [], [], [], []
+    for (src, oid, pid, q, rev, mg) in lines:
+        if pid not in pinfo:
             continue
-        rows.append((months_i.idx(month), p_i.idx(pid), r2(q), r2(rev), r2(mg)))
-    files["products.json"] = {
-        "months": months_i.list,
-        "rows": rows,
+        l_src.append(src)
+        l_oid.append(oid)
+        l_p.append(p_i.idx(pid))
+        l_q.append(q)
+        l_r.append(rev)
+        l_g.append(mg)
+    files["lines.json"] = {
+        "src": l_src, "oid": l_oid, "p": l_p,
+        "q": l_q, "r": l_r, "g": l_g,
         "products": [
             {"n": pinfo[pid][0], "c": pinfo[pid][1], "g": pinfo[pid][2],
              "s": pinfo[pid][3]}
@@ -637,7 +648,8 @@ def build_files():
         ],
     }
 
-    files["pnl.json"] = {"rows": fetch_pnl()}
+    pnl_rows, pnl_accounts = fetch_pnl()
+    files["pnl.json"] = {"rows": pnl_rows, "accounts": pnl_accounts}
 
     files["meta.json"] = {
         "generated_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),

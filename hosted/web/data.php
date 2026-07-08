@@ -10,7 +10,7 @@ if (!isset($_SESSION['fyxx_auth']) || $_SESSION['fyxx_auth'] !== 1) {
     exit;
 }
 
-$allowed = array('orders', 'sostates', 'delivery', 'products', 'pnl', 'meta');
+$allowed = array('orders', 'sostates', 'delivery', 'lines', 'pnl', 'meta');
 $f = isset($_GET['f']) ? (string)$_GET['f'] : '';
 if (!in_array($f, $allowed, true)) {
     http_response_code(400);
