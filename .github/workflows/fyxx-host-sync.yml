@@ -1,0 +1,38 @@
+name: Fyxx Host Data Sync
+
+# Refreshes the hosted dashboard's data at umg.jo/dashboard/fyxx/ by
+# running the Odoo -> JSON exporter and uploading via FTP.
+# Multiple cron times because GitHub cron on personal repos is
+# best-effort; each run is idempotent (full re-export + overwrite).
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes, best-effort
+  workflow_dispatch:
+
+concurrency:
+  group: fyxx-host-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Export Odoo data and upload to host
+        env:
+          ODOO_URL:     ${{ secrets.ODOO_URL }}
+          ODOO_DB:      ${{ secrets.ODOO_DB }}
+          ODOO_LOGIN:   ${{ secrets.ODOO_LOGIN }}
+          ODOO_API_KEY: ${{ secrets.ODOO_API_KEY }}
+          FTP_HOST:     ${{ secrets.FTP_HOST }}
+          FTP_USER:     ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: python hosted/fyxx_export.py

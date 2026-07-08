@@ -1,0 +1,3 @@
+# Uploaded as /fyxx/data/.htaccess — blocks direct HTTP access to the JSON
+# files so they are only readable through the session-gated data.php proxy.
+Require all denied
