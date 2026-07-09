@@ -36,7 +36,9 @@ TZ = ZoneInfo("Asia/Amman")
 _ECOM_SALESPERSON_KEYWORDS = ("shopify",)
 _B2B_SALESPERSON_KEYWORDS = ("tareq", "yousef")
 _B2C_COMPANY_KEYWORDS = ("fyxx operations (b2c)", "fyxx operations")
-POS_CONFIG_CHANNEL_MAP = {3: "TGR", 2: "Retail", 5: "Retail", 6: "Retail"}
+POS_CONFIG_CHANNEL_MAP = {3: "TGR", 2: "Retail", 5: "Retail", 6: "Retail",
+                          7: "TGR",   # Roof WC → TGR
+                          8: "TGR"}   # Restaurant → TGR
 EXCLUDED_POS_CONFIG_IDS = [4]
 _EXCLUDED_CUSTOMER_KEYWORDS = ("fyxx operations", "jt international")
 _CUSTOMER_CHANNEL_OVERRIDES = ((("jordanian duty free", "duty free shops"), "DF"),)

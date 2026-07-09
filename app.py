@@ -1160,6 +1160,8 @@ POS_CONFIG_CHANNEL_MAP = {
     2: "Retail",
     5: "Retail",            # Jasmine House → Retail (separate company, rolled up)
     6: "Retail",            # Events (Mobile) → Retail
+    7: "TGR",               # Roof WC → TGR (hospitality, rolled into Green Room)
+    8: "TGR",               # Restaurant → TGR (dine-in hospitality)
 }
 EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 
@@ -1408,7 +1410,7 @@ def _is_internal_customer(name):
 
 
 # Bump this when the customer-exclusion rules change so the cache invalidates.
-DATA_FILTER_VERSION = 6   # v6 = renamed JDFS channel to DF
+DATA_FILTER_VERSION = 7   # v7 = Roof WC + Restaurant POS registers mapped to TGR
 
 
 def resolve_channel_so(salesperson_name, company_name):
