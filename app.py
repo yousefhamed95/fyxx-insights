@@ -1,9 +1,9 @@
-﻿"""
-Fyxx Executive Insights â€” live, read-only dashboard.
+"""
+Fyxx Executive Insights — live, read-only dashboard.
 
 Companion to https://fyxx-sales.streamlit.app (operational view).
 This app is the executive / strategic view: multi-year KPIs, historical
-trends, channel mix, top movers â€” all rendered on a dark, editorial
+trends, channel mix, top movers — all rendered on a dark, editorial
 canvas with neon accents.
 
 Data source: Odoo XMLRPC. 100% READ-ONLY (search_read only).
@@ -28,7 +28,7 @@ from streamlit_autorefresh import st_autorefresh
 
 
 # =============================================================================
-# DESIGN SYSTEM â€” dark editorial with neon accents
+# DESIGN SYSTEM — dark editorial with neon accents
 # =============================================================================
 PALETTE = {
     "bg":        "#0A0A0B",   # page
@@ -72,7 +72,7 @@ CUSTOM_CSS = """
 /* Hide streamlit chrome */
 #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
 
-/* Page background â€” layered aurora glow, fixed so it doesn't scroll */
+/* Page background — layered aurora glow, fixed so it doesn't scroll */
 .stApp {
     background:
         radial-gradient(900px 520px at 12% -8%,  rgba(25, 227, 182, 0.10), transparent 65%),
@@ -83,11 +83,11 @@ CUSTOM_CSS = """
 }
 .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1480px; }
 
-/* Typography â€” refined editorial */
+/* Typography — refined editorial */
 html, body, [class*="css"] {
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: #F4F4F5;
-    /* tabular figures â€” digits all the same width so KPIs/tables don't jitter */
+    /* tabular figures — digits all the same width so KPIs/tables don't jitter */
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1, "lnum" 1;
 }
@@ -101,7 +101,7 @@ h2 { font-size: 18px !important; font-weight: 600 !important; color: #E4E4E7 !im
 h3 { font-size: 13.5px !important; font-weight: 700 !important; color: #A1A1AA !important;
      text-transform: uppercase; letter-spacing: 0.10em; }
 
-/* Hero scope label â€” solid neon green to match the rest of the accents */
+/* Hero scope label — solid neon green to match the rest of the accents */
 .hero-accent {
     color: #19E3B6 !important;
     background: none !important;
@@ -210,7 +210,7 @@ button[kind="pills"][aria-pressed="true"],
     border-bottom: 2px solid #19E3B6 !important;
 }
 
-/* DataFrames â€” refined wrapper styling */
+/* DataFrames — refined wrapper styling */
 [data-testid="stDataFrame"] {
     border-radius: 14px;
     border: 1px solid #23232B;
@@ -501,7 +501,7 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     border: 1px solid rgba(161,161,170, 0.25);
 }
 
-/* Hero â€” animated gradient border, single neon-green family only */
+/* Hero — animated gradient border, single neon-green family only */
 .hero {
     display: flex; align-items: center; justify-content: space-between;
     gap: 18px; flex-wrap: wrap;
@@ -540,9 +540,9 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 .hero h1 { margin: 0; font-size: 30px !important; line-height: 1.15; }
 .hero-accent { color: #19E3B6; }
 
-/* KPI cards (custom â€” richer than st.metric) */
+/* KPI cards (custom — richer than st.metric) */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-/* Main KPI strip â€” force all 6 cards into one row on wide screens */
+/* Main KPI strip — force all 6 cards into one row on wide screens */
 .kpi-strip-main { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 @media (min-width: 1100px) {
     .kpi-strip-main { grid-template-columns: repeat(6, 1fr) !important; }
@@ -771,7 +771,7 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
     .year-card.is-current::before,
     .year-card.is-current::after { display: none !important; }
     .hero { background: #131318 !important; }
-    /* Show ALL tab content sequentially when printing â€” gives a complete report */
+    /* Show ALL tab content sequentially when printing — gives a complete report */
     [data-baseweb="tab-panel"] {
         display: block !important;
         page-break-after: always;
@@ -1046,8 +1046,8 @@ hr { margin: 1.2rem 0 !important; border-color: #1F1F26 !important; opacity: 1 !
 # CONFIG
 # =============================================================================
 st.set_page_config(
-    page_title="Fyxx â€” Executive Insights",
-    page_icon="â—†",
+    page_title="Fyxx — Executive Insights",
+    page_icon="◆",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -1144,9 +1144,9 @@ def city_to_coords(city):
 
 
 # Channel mapping based on a deep audit of Fyxx Odoo (last-90-day data):
-#   sale.order  â†’ bucketed by warehouse_id (gives a meaningful split between
+#   sale.order  → bucketed by warehouse_id (gives a meaningful split between
 #                 e-commerce, B2B/Bonded, physical shop)
-#   pos.order   â†’ bucketed by config_id (Dine-In = Green Room, etc.)
+#   pos.order   → bucketed by config_id (Dine-In = Green Room, etc.)
 #
 # The previous "Sales" team bucket lumped 66% of revenue into one pill.
 # Replacing with warehouse-based buckets exposes 4 distinct sub-channels.
@@ -1156,23 +1156,23 @@ _ECOM_SALESPERSON_KEYWORDS = ("shopify",)                          # Shopify & O
 _B2B_SALESPERSON_KEYWORDS  = ("tareq", "yousef")                   # Tareq Shnoudi / Yousef Mazhareh
 _B2C_COMPANY_KEYWORDS      = ("fyxx operations (b2c)", "fyxx operations")
 POS_CONFIG_CHANNEL_MAP = {
-    3: "TGR",        # Dine-In register (will be line-split: bottles/cigars â†’ Retail)
+    3: "TGR",        # Dine-In register (will be line-split: bottles/cigars → Retail)
     2: "Retail",
-    5: "Retail",            # Jasmine House â†’ Retail (separate company, rolled up)
-    6: "Retail",            # Events (Mobile) â†’ Retail
-    7: "TGR",               # Roof WC â†’ TGR (hospitality, rolled into Green Room)
-    8: "TGR",               # Restaurant â†’ TGR (dine-in hospitality)
+    5: "Retail",            # Jasmine House → Retail (separate company, rolled up)
+    6: "Retail",            # Events (Mobile) → Retail
+    7: "TGR",               # Roof WC → TGR (hospitality, rolled into Green Room)
+    8: "TGR",               # Restaurant → TGR (dine-in hospitality)
 }
 EXCLUDED_POS_CONFIG_IDS = [4]   # Archived (testing POS)
 
-# Stable colour per channel â€” keeps any chart visually consistent.
+# Stable colour per channel — keeps any chart visually consistent.
 # Falls back to CHART_COLORWAY for channels not listed here.
 CHANNEL_COLORS = {
     "E-com":      "#19E3B6",  # primary neon
     "Retail":     "#38BDF8",  # sky blue
     "TGR":        "#A78BFA",  # violet (hospitality / dine-in)
     "B2B":        "#F5B544",  # amber/gold (high-AOV wholesale)
-    "DF":       "#EC4899",  # rose â€” Jordanian Duty Free Shops
+    "DF":       "#EC4899",  # rose — Jordanian Duty Free Shops
 }
 
 
@@ -1305,7 +1305,7 @@ st_autorefresh(interval=REFRESH_SECONDS * 1000, key="data-refresh")
 
 
 # =============================================================================
-# LIVE VIEWER PRESENCE â€” counts active sessions on this worker
+# LIVE VIEWER PRESENCE — counts active sessions on this worker
 # =============================================================================
 PRESENCE_TTL_SECONDS = 90  # a session that hasn't pinged in 90s is "gone"
 
@@ -1335,7 +1335,7 @@ _LIVE_VIEWERS = update_presence()
 
 
 # =============================================================================
-# ODOO â€” READ-ONLY
+# ODOO — READ-ONLY
 # =============================================================================
 @st.cache_resource(show_spinner=False)
 def get_clients():
@@ -1376,14 +1376,14 @@ def get_user_info():
 # EVERY chart, KPI, table, and aggregation in the dashboard.
 _EXCLUDED_CUSTOMER_KEYWORDS = (
     "fyxx operations",   # 'Fyxx Operations (B2C)' company self-purchases
-    "jt international",  # 'JT INTERNATIONAL ( JORDAN ) LTD.' â€” exclude entirely
+    "jt international",  # 'JT INTERNATIONAL ( JORDAN ) LTD.' — exclude entirely
 )
 
 
 # Customer-name patterns that get their own dedicated channel, overriding
 # the salesperson/company-based classification. Substring match, case-insensitive.
 _CUSTOMER_CHANNEL_OVERRIDES = (
-    # Jordanian Duty Free Shops â†’ its own 'DF' channel
+    # Jordanian Duty Free Shops → its own 'DF' channel
     (("jordanian duty free", "duty free shops"), "DF"),
 )
 
@@ -1417,9 +1417,9 @@ def resolve_channel_so(salesperson_name, company_name):
     """Map a sale.order to one of: E-com / Retail / B2B (Green Room is POS-only).
 
     Rules (set by the user):
-      â€¢ E-com : salesperson contains 'Shopify' AND company is Fyxx Operations (B2C)
-      â€¢ B2B   : salesperson contains 'Tareq' or 'Yousef' AND company is Fyxx Operations (B2C)
-      â€¢ Retail: everything else (other companies, other salespeople)"""
+      • E-com : salesperson contains 'Shopify' AND company is Fyxx Operations (B2C)
+      • B2B   : salesperson contains 'Tareq' or 'Yousef' AND company is Fyxx Operations (B2C)
+      • Retail: everything else (other companies, other salespeople)"""
     sp = (salesperson_name or "").strip().lower()
     co = (company_name or "").strip().lower()
     is_b2c = any(k in co for k in _B2C_COMPANY_KEYWORDS)
@@ -1438,7 +1438,7 @@ def _is_retail_at_green_room(category_path):
     if not category_path:
         return False
     p = " " + category_path.lower() + " "
-    # On-premise consumption stays in Green Room â†“
+    # On-premise consumption stays in Green Room ↓
     if "(dine-in)" in p or "(di)" in p:
         return False
     if "btg" in p:                         # by-the-glass spirits / wines
@@ -1451,7 +1451,7 @@ def _is_retail_at_green_room(category_path):
         return False
     if "/ cocktails" in p:
         return False
-    # Take-home retail at Green Room: alcohol bottles, cigars, cigarettes â†“
+    # Take-home retail at Green Room: alcohol bottles, cigars, cigarettes ↓
     if "/ alcohol" in p or "/ tobacco" in p or "cigar" in p:
         return True
     return False
@@ -1593,8 +1593,8 @@ def fetch_orders_window_v6(start_iso, end_iso, _ttl_bucket,
     rows = []
     for o in sos:
         partner_id = o["partner_id"][0] if o.get("partner_id") else None
-        customer = o["partner_id"][1] if o.get("partner_id") else "â€”"
-        salesperson = o["user_id"][1] if o.get("user_id") else "â€”"
+        customer = o["partner_id"][1] if o.get("partner_id") else "—"
+        salesperson = o["user_id"][1] if o.get("user_id") else "—"
         company = o["company_id"][1] if o.get("company_id") else None
         rows.append({
             "name": o["name"],
@@ -1617,7 +1617,7 @@ def fetch_orders_window_v6(start_iso, end_iso, _ttl_bucket,
         )
         partner_id = o["partner_id"][0] if o.get("partner_id") else None
         customer = o["partner_id"][1] if o.get("partner_id") else "Walk-in"
-        salesperson = o["user_id"][1] if o.get("user_id") else "â€”"
+        salesperson = o["user_id"][1] if o.get("user_id") else "—"
         net = (o.get("amount_total") or 0) - (o.get("amount_tax") or 0)
         rows.append({
             "name": o["name"],
@@ -1636,7 +1636,7 @@ def fetch_orders_window_v6(start_iso, end_iso, _ttl_bucket,
     # Global customer filter: exclude internal/self-purchase entries
     # (currently: any customer name containing 'Fyxx Operations')
     rows = [r for r in rows if not _is_internal_customer(r.get("customer"))]
-    # Customer-name channel overrides (e.g. Jordanian Duty Free Shops â†’ DF).
+    # Customer-name channel overrides (e.g. Jordanian Duty Free Shops → DF).
     # Done BEFORE the Green Room split so DF orders aren't accidentally
     # split into Retail + TGR rows.
     for r in rows:
@@ -1650,7 +1650,7 @@ def fetch_orders_window_v6(start_iso, end_iso, _ttl_bucket,
 
 def load_dataframe(start_date, end_date, tz, ttl_bucket):
     start_utc, end_utc = _date_window_utc(start_date, end_date, tz)
-    # Pass DATA_FILTER_VERSION explicitly so it becomes part of the cache key â€”
+    # Pass DATA_FILTER_VERSION explicitly so it becomes part of the cache key —
     # bumping the constant guarantees a fresh fetch on next render.
     rows = fetch_orders_window_v6(
         start_utc.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1678,17 +1678,17 @@ def load_dataframe(start_date, end_date, tz, ttl_bucket):
 SHIFT_TAB_VERSION = 1   # bump to invalidate the Shifts-tab cache
 
 # Shift boundaries (Asia/Amman local hours), set by the user:
-#   Shift 1 "Day"     : 10:00 â€“ 17:00   (10 AM â€“ 5 PM)
-#   Shift 2 "Evening" : 17:00 â€“ 01:00   (5 PM â€“ 1 AM, spans midnight)
-#   Off-hours         : 01:00 â€“ 10:00   (shown only so daily totals reconcile)
-SHIFT_DAY_LABEL = "Day Â· 10â€“17"
-SHIFT_EVE_LABEL = "Evening Â· 17â€“01"
-SHIFT_OFF_LABEL = "Off Â· 01â€“10"
+#   Shift 1 "Day"     : 10:00 – 17:00   (10 AM – 5 PM)
+#   Shift 2 "Evening" : 17:00 – 01:00   (5 PM – 1 AM, spans midnight)
+#   Off-hours         : 01:00 – 10:00   (shown only so daily totals reconcile)
+SHIFT_DAY_LABEL = "Day · 10–17"
+SHIFT_EVE_LABEL = "Evening · 17–01"
+SHIFT_OFF_LABEL = "Off · 01–10"
 SHIFT_ORDER = [SHIFT_DAY_LABEL, SHIFT_EVE_LABEL, SHIFT_OFF_LABEL]
 SHIFT_COLORS = {
-    SHIFT_DAY_LABEL: "#F5B544",   # amber â€” daytime
-    SHIFT_EVE_LABEL: "#A78BFA",   # violet â€” evening / night
-    SHIFT_OFF_LABEL: "#3F3F46",   # muted graphite â€” off-hours
+    SHIFT_DAY_LABEL: "#F5B544",   # amber — daytime
+    SHIFT_EVE_LABEL: "#A78BFA",   # violet — evening / night
+    SHIFT_OFF_LABEL: "#3F3F46",   # muted graphite — off-hours
 }
 
 
@@ -1696,7 +1696,7 @@ def _shift_of_hour(hour):
     """Bucket an Amman-local hour (0-23) into one of the two shifts, or Off."""
     if 10 <= hour < 17:
         return SHIFT_DAY_LABEL
-    if hour >= 17 or hour < 1:        # 17:00â€“00:59 (wraps past midnight)
+    if hour >= 17 or hour < 1:        # 17:00–00:59 (wraps past midnight)
         return SHIFT_EVE_LABEL
     return SHIFT_OFF_LABEL
 
@@ -1724,10 +1724,10 @@ def fetch_online_draft_orders(start_iso, end_iso, _ttl_bucket,
         orders = []
     rows = []
     for o in orders:
-        customer = o["partner_id"][1] if o.get("partner_id") else "â€”"
+        customer = o["partner_id"][1] if o.get("partner_id") else "—"
         if _is_internal_customer(customer):
             continue
-        salesperson = o["user_id"][1] if o.get("user_id") else "â€”"
+        salesperson = o["user_id"][1] if o.get("user_id") else "—"
         company = o["company_id"][1] if o.get("company_id") else None
         channel = resolve_channel_so(salesperson, company)
         override = _customer_channel_override(customer)
@@ -1755,7 +1755,7 @@ def fetch_delivery_orders(start_iso, end_iso, _ttl_bucket,
     """Read-only: real 'Delivery Orders' outgoing pickings whose linked sale
     order was placed in the window. Excludes in-store / PoS pickups. Returns
     rows enriched with the order date, resolved channel and the computed
-    lead time (order placed â†’ delivery completed, in hours)."""
+    lead time (order placed → delivery completed, in hours)."""
     try:
         ptypes = kw("stock.picking.type", "search_read",
                     [[["code", "=", "outgoing"]]],
@@ -1796,10 +1796,10 @@ def fetch_delivery_orders(start_iso, end_iso, _ttl_bucket,
         s = so.get(sid) if sid else None
         if not s:
             continue
-        cust = s["partner_id"][1] if s.get("partner_id") else "â€”"
+        cust = s["partner_id"][1] if s.get("partner_id") else "—"
         if _is_internal_customer(cust):
             continue
-        sp = s["user_id"][1] if s.get("user_id") else "â€”"
+        sp = s["user_id"][1] if s.get("user_id") else "—"
         co = s["company_id"][1] if s.get("company_id") else None
         channel = _customer_channel_override(cust) or resolve_channel_so(sp, co)
         lead = None
@@ -1832,7 +1832,7 @@ def _ltr(value):
     instead of flipping to right-aligned RTL display."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return value
-    return "â€Ž" + str(value)
+    return "‎" + str(value)
 
 
 def _clean_product_name(name):
@@ -1844,7 +1844,7 @@ def _clean_product_name(name):
     return re.sub(r"^\s*\[[^\]]+\]\s*", "", str(name)).strip()
 
 
-# Order-line fetcher (for the SKU / Products tab) â€” read-only, cached.
+# Order-line fetcher (for the SKU / Products tab) — read-only, cached.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
     """Fetch sale.order.line + pos.order.line in a UTC window.
@@ -1905,7 +1905,7 @@ def fetch_order_lines_window(start_iso, end_iso, _ttl_bucket):
     return rows
 
 
-# Expense / P&L data â€” pulls aggregated GL balances per expense account.
+# Expense / P&L data — pulls aggregated GL balances per expense account.
 # Read-only, cached. Used by the P&L tab.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_expense_balances(start_date_iso, end_date_iso, _ttl_bucket):
@@ -1959,7 +1959,7 @@ def fetch_expense_balances(start_date_iso, end_date_iso, _ttl_bucket):
     return out
 
 
-# Product-category lookup â€” read-only, cached. Returns dict id -> info.
+# Product-category lookup — read-only, cached. Returns dict id -> info.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
 def fetch_product_categories(product_ids_tuple, _ttl_bucket):
     """Read product.product.categ_id for each id; return id -> dict with
@@ -1978,14 +1978,14 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
     for r in rows:
         path = (r["categ_id"][1] if r.get("categ_id") else "") or ""
         if not path:
-            out[r["id"]] = {"subcategory": "â€”", "group": "â€”",
-                            "category_path": "â€”"}
+            out[r["id"]] = {"subcategory": "—", "group": "—",
+                            "category_path": "—"}
             continue
         parts = [p.strip() for p in path.split("/") if p.strip()]
         if parts and parts[0].lower() == "all":
             parts = parts[1:]
         if not parts:
-            out[r["id"]] = {"subcategory": "â€”", "group": "â€”",
+            out[r["id"]] = {"subcategory": "—", "group": "—",
                             "category_path": path}
             continue
         # Roll-up rule: any product whose path goes through a "Spirits"
@@ -1993,7 +1993,7 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
         # "... / Spirits / Vodka / Liqueur") is bucketed under a single
         # "Spirits" sub-category instead of the leaf (Whisky, Vodka, ...).
         # Leaf labels that ARE "Spirits" already (like "Spirits (BTG)") stay
-        # as-is â€” only the *child-of-Spirits* leaves get rolled up.
+        # as-is — only the *child-of-Spirits* leaves get rolled up.
         if any(seg.lower() == "spirits" for seg in parts[:-1]):
             sub = "Spirits"
         else:
@@ -2008,9 +2008,9 @@ def fetch_product_categories(product_ids_tuple, _ttl_bucket):
 
 # Supplier-name aliases. Any partner whose lowercased name CONTAINS one of these
 # substrings is rolled up under a single canonical label. Iteration order matters
-# â€” earlier rules win. Keep keys lowercase.
+# — earlier rules win. Keep keys lowercase.
 SUPPLIER_ALIASES = (
-    # 1) Anything with "Fyxx" in the vendor tag is the Fyxx house brand â€”
+    # 1) Anything with "Fyxx" in the vendor tag is the Fyxx house brand —
     #    consolidates "Fyxx | Les Caves de Pyrene", "Fyxx x UMG Bundles",
     #    "Fyxx Operations", etc. into ONE bucket called "Fyxx".
     ("fyxx",            "Fyxx"),
@@ -2045,13 +2045,13 @@ def _normalise_supplier(name):
     return name
 
 
-# Bump this whenever SUPPLIER_ALIASES or the donut highlight list changes â€”
+# Bump this whenever SUPPLIER_ALIASES or the donut highlight list changes —
 # it forces st.cache_data to invalidate cached supplier resolution so the new
 # rules take effect immediately on next deploy instead of waiting for the TTL.
 SUPPLIER_RULES_VERSION = 4   # v4 = renamed Bulos display label to Zumot
 
 
-# Product-supplier lookup â€” reads the Studio custom field 'x_studio_vendor_tags'
+# Product-supplier lookup — reads the Studio custom field 'x_studio_vendor_tags'
 # (free-text vendor tag on the product's Sales tab). 72% coverage vs 13% for
 # the Purchase-tab seller_ids approach. Read-only, cached.
 @st.cache_data(ttl=HISTORY_TTL, show_spinner=False)
@@ -2059,8 +2059,8 @@ def fetch_product_suppliers(product_ids_tuple, _ttl_bucket,
                              _rules_version=SUPPLIER_RULES_VERSION):
     """For each product, return dict pid -> vendor tag (string).
     Reads `x_studio_vendor_tags` (custom Studio field on product.product).
-    Empty / missing â†’ 'No vendor tag'. Aliases via _normalise_supplier().
-    The _rules_version arg is purely for cache invalidation â€” bumping
+    Empty / missing → 'No vendor tag'. Aliases via _normalise_supplier().
+    The _rules_version arg is purely for cache invalidation — bumping
     SUPPLIER_RULES_VERSION at the top forces a fresh fetch on next render."""
     if not product_ids_tuple:
         return {}
@@ -2083,7 +2083,7 @@ def fetch_product_suppliers(product_ids_tuple, _ttl_bucket,
     return out
 
 
-# Partner address lookup â€” read-only, cached 1 hour. Returns dict id -> info.
+# Partner address lookup — read-only, cached 1 hour. Returns dict id -> info.
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_partner_addresses(partner_ids_tuple):
     """Read city/country/state for each partner ID (read-only)."""
@@ -2115,7 +2115,7 @@ def fetch_partner_addresses(partner_ids_tuple):
 # =============================================================================
 def fmt_money(n, currency, compact=False):
     if n is None:
-        return "â€”"
+        return "—"
     if compact:
         if abs(n) >= 1_000_000:
             return f"{n/1_000_000:.2f}M {currency}"
@@ -2135,8 +2135,8 @@ def delta_html(curr, prev, label=""):
     if pct is None:
         return f"<span style='color:#71717A'>no prior data</span>"
     if pct >= 0:
-        return f"<span class='kpi-delta-up'>â–² {pct:.1f}%</span> <span style='color:#71717A'>{label}</span>"
-    return f"<span class='kpi-delta-dn'>â–¼ {abs(pct):.1f}%</span> <span style='color:#71717A'>{label}</span>"
+        return f"<span class='kpi-delta-up'>▲ {pct:.1f}%</span> <span style='color:#71717A'>{label}</span>"
+    return f"<span class='kpi-delta-dn'>▼ {abs(pct):.1f}%</span> <span style='color:#71717A'>{label}</span>"
 
 
 def style_fig(fig, height=320, show_legend=True):
@@ -2208,11 +2208,11 @@ with st.sidebar:
     history_end_year = max(selected_years)
 
     st.markdown("---")
-    if st.button("â—Œ  Refresh now", use_container_width=True):
+    if st.button("◌  Refresh now", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
-    if st.button("âŽ™  Save as PDF", use_container_width=True,
-                 help="Open the browser's print dialog â€” choose 'Save as PDF' "
+    if st.button("⎙  Save as PDF", use_container_width=True,
+                 help="Open the browser's print dialog — choose 'Save as PDF' "
                       "to export the current view as a branded report"):
         # Streamlit components run in an iframe, but we can call parent.print()
         from streamlit.components.v1 import html as _stcomp_html
@@ -2224,7 +2224,7 @@ with st.sidebar:
         )
     st.caption(
         f"<span style='color:#71717A;font-size:11px'>"
-        f"Auto-refresh every {REFRESH_SECONDS}s Â· live + cached history"
+        f"Auto-refresh every {REFRESH_SECONDS}s · live + cached history"
         "</span>",
         unsafe_allow_html=True,
     )
@@ -2255,7 +2255,7 @@ if not today_live.empty:
     df_hist = pd.concat([df_hist, today_live], ignore_index=True)
 
 # Channel list (built from data)
-# Display order for channel pills: E-com â†’ Retail â†’ TGR â†’ B2B (B2B at the end).
+# Display order for channel pills: E-com → Retail → TGR → B2B (B2B at the end).
 # Any channel not in this list is appended after, sorted alphabetically.
 _CHANNEL_DISPLAY_ORDER = ["E-com", "Retail", "TGR", "B2B", "DF"]
 if not df_hist.empty:
@@ -2268,13 +2268,13 @@ else:
 
 
 # =============================================================================
-# TICKER PLACEHOLDER â€” reserved at the very top, filled after data is computed
+# TICKER PLACEHOLDER — reserved at the very top, filled after data is computed
 # =============================================================================
 ticker_slot = st.empty()
 
 
 # =============================================================================
-# TOP SLICER BAR â€” period + channels live at the top of the report
+# TOP SLICER BAR — period + channels live at the top of the report
 # =============================================================================
 st.markdown(
     "<div style='margin-top:-8px;margin-bottom:6px;color:#71717A;"
@@ -2362,7 +2362,7 @@ def scope_window(scope, today, sel_years, custom_start, custom_end):
         d2 = y - timedelta(days=1)
         return y, y, d2, d2, "Yesterday"
     if scope == "MTD":
-        # Month-to-Date: 1st of current month â†’ today;
+        # Month-to-Date: 1st of current month → today;
         # prior period is the same number of days in the previous month.
         cs = today.replace(day=1)
         elapsed = (today - cs).days
@@ -2376,13 +2376,13 @@ def scope_window(scope, today, sel_years, custom_start, custom_end):
         ps = date(main_year - 1, 1, 1)
         pe = ce.replace(year=main_year - 1)
         return cs, ce, ps, pe, f"YTD {main_year}"
-    # Custom (or unknown) â†’ use the user's date range
+    # Custom (or unknown) → use the user's date range
     cs = custom_start or today.replace(month=1, day=1)
     ce = custom_end or today
     span = (ce - cs).days
     pe = cs - timedelta(days=1)
     ps = pe - timedelta(days=span)
-    return cs, ce, ps, pe, f"{cs.isoformat()} â†’ {ce.isoformat()}"
+    return cs, ce, ps, pe, f"{cs.isoformat()} → {ce.isoformat()}"
 
 
 curr_start, curr_end, prev_start, prev_end, scope_label = scope_window(
@@ -2401,14 +2401,14 @@ df_prev = slice_df(df, prev_start, prev_end)
 
 
 # =============================================================================
-# TICKER â€” fill the top placeholder with channel KPIs in scrolling marquee
+# TICKER — fill the top placeholder with channel KPIs in scrolling marquee
 # =============================================================================
 def _delta_chip(curr_val, prev_val):
     if not prev_val:
-        return "<span class='delta flat'>Â· NEW</span>"
+        return "<span class='delta flat'>· NEW</span>"
     pct = (curr_val - prev_val) / prev_val * 100
     cls = "up" if pct >= 0 else "dn"
-    arrow = "â–²" if pct >= 0 else "â–¼"
+    arrow = "▲" if pct >= 0 else "▼"
     return f"<span class='delta {cls}'>{arrow} {abs(pct):.1f}%</span>"
 
 
@@ -2420,7 +2420,7 @@ def build_ticker(df_curr, df_prev, scope_label, currency):
     prev_rev_t = float(df_prev["amount_total"].sum()) if not df_prev.empty else 0.0
     items.append(
         f"<div class='ticker-item'>"
-        f"<span class='label'>{scope_label} Â· Total</span>"
+        f"<span class='label'>{scope_label} · Total</span>"
         f"<span class='value'>{fmt_money(rev, currency, compact=True)}</span>"
         f"{_delta_chip(rev, prev_rev_t)}"
         f"</div>"
@@ -2480,7 +2480,7 @@ def build_ticker(df_curr, df_prev, scope_label, currency):
             items.append(
                 f"<div class='ticker-item'>"
                 f"<span class='label'>Top Customer</span>"
-                f"<span class='value'>{cust_rev_s.index[0]} Â· "
+                f"<span class='value'>{cust_rev_s.index[0]} · "
                 f"{fmt_money(cust_rev_s.iloc[0], currency, compact=True)}</span>"
                 f"</div>"
             )
@@ -2492,7 +2492,7 @@ def build_ticker(df_curr, df_prev, scope_label, currency):
             items.append(
                 f"<div class='ticker-item'>"
                 f"<span class='label'>Top Sales</span>"
-                f"<span class='value'>{sp_rev_s.index[0]} Â· "
+                f"<span class='value'>{sp_rev_s.index[0]} · "
                 f"{fmt_money(sp_rev_s.iloc[0], currency, compact=True)}</span>"
                 f"</div>"
             )
@@ -2505,7 +2505,7 @@ def build_ticker(df_curr, df_prev, scope_label, currency):
             items.append(
                 f"<div class='ticker-item'>"
                 f"<span class='label'>Best Day</span>"
-                f"<span class='value'>{best_day_s.strftime('%d %b')} Â· "
+                f"<span class='value'>{best_day_s.strftime('%d %b')} · "
                 f"{fmt_money(by_day_s.max(), currency, compact=True)}</span>"
                 f"</div>"
             )
@@ -2546,7 +2546,7 @@ st.markdown(
 
 
 # =============================================================================
-# STICKY SCOPE STRIP â€” stays visible while you scroll
+# STICKY SCOPE STRIP — stays visible while you scroll
 # =============================================================================
 _now_for_strip = datetime.now(ZoneInfo(TZ))
 if all_channels and len(selected_channels) < len(all_channels):
@@ -2558,16 +2558,16 @@ else:
 _scope_strip_html = (
     "<div class='scope-strip'>"
     f"<span class='pill'>{scope_label}</span>"
-    f"<span class='dim'>Â·</span>"
+    f"<span class='dim'>·</span>"
     f"<span><b>{_strip_chans}</b></span>"
-    f"<span class='dim'>Â·</span>"
-    f"<span class='dim'>Updated {_now_for_strip.strftime('%H:%M:%S')} Â· {TZ}</span>"
+    f"<span class='dim'>·</span>"
+    f"<span class='dim'>Updated {_now_for_strip.strftime('%H:%M:%S')} · {TZ}</span>"
     "</div>"
 )
 st.markdown(_scope_strip_html, unsafe_allow_html=True)
 
 
-# Credit line removed by request. now_local kept â€” still used elsewhere (e.g. ticker timestamps).
+# Credit line removed by request. now_local kept — still used elsewhere (e.g. ticker timestamps).
 now_local = datetime.now(ZoneInfo(TZ))
 
 
@@ -2584,14 +2584,14 @@ def year_card(year, df_year, df_prev_year, period_label, is_current=False):
     growth_html = ""
     if pct is not None:
         cls = "kpi-delta-up" if pct >= 0 else "kpi-delta-dn"
-        arrow = "â–²" if pct >= 0 else "â–¼"
+        arrow = "▲" if pct >= 0 else "▼"
         growth_html = (f"<div style='margin-top:14px'><span class='{cls}'>"
                        f"{arrow} {abs(pct):.1f}%</span> "
                        f"<span style='color:#71717A;font-size:12px'>vs {year-1}</span></div>")
     cls = "year-card is-current" if is_current else "year-card"
     return (
         f"<div class='{cls}'>"
-        f"<div class='year-label'>{year} Â· {period_label}</div>"
+        f"<div class='year-label'>{year} · {period_label}</div>"
         f"<div class='year-value'>{fmt_money(rev, CURRENCY, compact=True)}</div>"
         f"<div class='year-meta'>"
         f"Orders: <b style='color:#E4E4E7'>{orders:,}</b><br>"
@@ -2603,7 +2603,7 @@ def year_card(year, df_year, df_prev_year, period_label, is_current=False):
     )
 
 
-# Year cards now follow the active period slicer â€” for each selected year,
+# Year cards now follow the active period slicer — for each selected year,
 # the same calendar window as the current scope is shown (apples-to-apples).
 def _shift_year(d, year):
     """Replace the year of a date, mapping Feb 29 -> Feb 28 for non-leap years."""
@@ -2638,7 +2638,7 @@ def year_card_slice(d, year, today, cs, ce):
 
 # Year-performance cards removed by request.
 # We still compute `years_with_data` because several multi-year charts
-# (YTD trajectory, Monthly YoY, Channel Ã— year) rely on it to know which
+# (YTD trajectory, Monthly YoY, Channel × year) rely on it to know which
 # year lines to actually draw.
 years_for_cards = sorted(selected_years)
 years_with_data = [y for y in years_for_cards
@@ -2711,11 +2711,11 @@ def render_leaderboard(rows, max_rows=10, color="#19E3B6"):
     """Render an elegant leaderboard from a list of dicts.
 
     Each row dict:
-      name      â€” primary text
-      sub       â€” small secondary text (optional)
-      value     â€” numeric (used to size the bar and sort)
-      value_str â€” formatted display value (e.g. "84.5K JOD")
-      delta_pct â€” optional float; renders + or - delta chip
+      name      — primary text
+      sub       — small secondary text (optional)
+      value     — numeric (used to size the bar and sort)
+      value_str — formatted display value (e.g. "84.5K JOD")
+      delta_pct — optional float; renders + or - delta chip
     """
     if not rows:
         return "<div class='lb-card'><div class='lb-empty'>No data</div></div>"
@@ -2728,7 +2728,7 @@ def render_leaderboard(rows, max_rows=10, color="#19E3B6"):
     for i, r in enumerate(rows):
         rank = i + 1
         cls = rank_class[i] if i < 3 else ""
-        name = r.get("name") or "â€”"
+        name = r.get("name") or "—"
         sub = r.get("sub")
         value = r.get("value") or 0
         value_str = r.get("value_str") or f"{value:,.0f}"
@@ -2739,7 +2739,7 @@ def render_leaderboard(rows, max_rows=10, color="#19E3B6"):
         delta_html = ""
         d = r.get("delta_pct")
         if d is not None:
-            sign = "â–²" if d >= 0 else "â–¼"
+            sign = "▲" if d >= 0 else "▼"
             d_cls = "up" if d >= 0 else "dn"
             delta_html = f"<span class='lb-delta {d_cls}'>{sign} {abs(d):.1f}%</span>"
 
@@ -2829,14 +2829,14 @@ kpi_html += kpi_card(
     fmt_money(curr_gross, CURRENCY, compact=True),
     delta_html(curr_gross, prev_gross, "vs prior period"),
     f"VAT: {fmt_money(curr_vat, CURRENCY, compact=True)}"
-    + (f" Â· Prior gross: {fmt_money(prev_gross, CURRENCY, compact=True)}"
+    + (f" · Prior gross: {fmt_money(prev_gross, CURRENCY, compact=True)}"
        if prev_gross else ""),
     spark=_spark_gross, spark_color="#5FF5CB",
 )
-# Gross Margin card â€” % delta in percentage points, not relative %
+# Gross Margin card — % delta in percentage points, not relative %
 _gm_ppt = curr_gm_pct - prev_gm_pct
 if prev_gm_pct:
-    _gm_arrow = "â–²" if _gm_ppt >= 0 else "â–¼"
+    _gm_arrow = "▲" if _gm_ppt >= 0 else "▼"
     _gm_cls = "kpi-delta-up" if _gm_ppt >= 0 else "kpi-delta-dn"
     _gm_delta_html = (f"<span class='{_gm_cls}'>{_gm_arrow} {abs(_gm_ppt):.1f} ppt</span> "
                       f"<span style='color:#71717A'>vs prior period</span>")
@@ -2849,7 +2849,7 @@ kpi_html += kpi_card(
     f"{curr_gm_pct:.1f}%",
     _gm_delta_html,
     (f"Profit: {fmt_money(curr_profit, CURRENCY, compact=True)}"
-     + (f" Â· {_gm_foot}" if _gm_foot else "")),
+     + (f" · {_gm_foot}" if _gm_foot else "")),
     spark=_spark_gm, spark_color="#F5B544",
 )
 kpi_html += kpi_card(
@@ -2861,7 +2861,7 @@ kpi_html += kpi_card(
 )
 kpi_html += kpi_card(
     "Avg order value",
-    fmt_money(curr_aov, CURRENCY) if curr_orders else "â€”",
+    fmt_money(curr_aov, CURRENCY) if curr_orders else "—",
     delta_html(curr_aov, prev_aov, "vs prior period"),
     f"Prior: {fmt_money(prev_aov, CURRENCY)}" if prev_aov else "",
     spark=_spark_aov, spark_color="#A78BFA",
@@ -2883,12 +2883,12 @@ st.markdown(kpi_html, unsafe_allow_html=True)
 (tab_brief, tab_exec, tab_shifts, tab_pace, tab_profit, tab_pnl, tab_sku,
  tab_loss, tab_alerts, tab_trends, tab_channels, tab_customers, tab_cohorts,
  tab_compare, tab_recent) = st.tabs(
-    ["  â—†  Brief  ", "  â–  Executive Summary  ", "  â—·  Online & Shifts  ",
-     "  â–²  Pacing  ",
-     "  â—¯  Profitability  ", "  Î£  P&L  ", "  â’  Products  ",
-     "  â€»  Loss Orders  ", "  âš‘  Alerts  ", "  âŒ  Trends  ",
-     "  âŒ¬  Channels  ", "  â—  Customers  ", "  âŸ³  Cohorts  ",
-     "  â‡‹  Compare  ", "  â—  Live  "]
+    ["  ◆  Brief  ", "  ❖  Executive Summary  ", "  ◷  Online & Shifts  ",
+     "  ▲  Pacing  ",
+     "  ◯  Profitability  ", "  Σ  P&L  ", "  ❒  Products  ",
+     "  ※  Loss Orders  ", "  ⚑  Alerts  ", "  ⌁  Trends  ",
+     "  ⌬  Channels  ", "  ◐  Customers  ", "  ⟳  Cohorts  ",
+     "  ⇋  Compare  ", "  ●  Live  "]
 )
 
 
@@ -2934,7 +2934,7 @@ def _build_brief(df_curr, df_prev, scope_label, currency,
     def signed_pct(p):
         if p is None:
             return "<span style='color:#71717A'>n/a</span>"
-        sign = "+" if p >= 0 else "âˆ’"
+        sign = "+" if p >= 0 else "−"
         color = "#22C55E" if p >= 0 else "#F87171"
         return f"<b style='color:{color}'>{sign}{abs(p):.1f}%</b>"
 
@@ -3096,11 +3096,11 @@ def _build_brief(df_curr, df_prev, scope_label, currency,
         ratio = best_day_amt / avg_day if avg_day else 1
         p_day = (
             f"<p><b>Standout day.</b> "
-            f"{acc(best_day.strftime('%A Â· %d %b %Y'))} delivered "
+            f"{acc(best_day.strftime('%A · %d %b %Y'))} delivered "
             f"{acc(fmt_money(best_day_amt, currency, compact=True))}"
         )
         if ratio >= 1.5:
-            p_day += f" â€” roughly {ratio:.1f}Ã— the daily average for the period."
+            p_day += f" — roughly {ratio:.1f}× the daily average for the period."
         else:
             p_day += "."
         p_day += "</p>"
@@ -3111,7 +3111,7 @@ def _build_brief(df_curr, df_prev, scope_label, currency,
         if pct >= 10:
             closing = (
                 "<p class='brief-callout brief-good'>"
-                "Net direction is clearly positive â€” momentum is on the upside. "
+                "Net direction is clearly positive — momentum is on the upside. "
                 "Recommended focus: protect the top-performing channel and "
                 "double down on whatever drove the largest customers' purchases."
                 "</p>"
@@ -3140,8 +3140,8 @@ with tab_brief:
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sec'><h3>Executive Brief</h3>"
-        f"<div class='sec-sub'>Auto-generated narrative Â· {scope_label} "
-        f"Â· {len(selected_channels)} channel(s)</div></div>",
+        f"<div class='sec-sub'>Auto-generated narrative · {scope_label} "
+        f"· {len(selected_channels)} channel(s)</div></div>",
         unsafe_allow_html=True,
     )
     brief_html = _build_brief(
@@ -3152,7 +3152,7 @@ with tab_brief:
         f"<div class='brief-card'>{brief_html}</div>",
         unsafe_allow_html=True,
     )
-    # Top-5 leaderboards â€” elegant custom HTML with rank, bar, value
+    # Top-5 leaderboards — elegant custom HTML with rank, bar, value
     if not df_curr.empty:
         b1, b2, b3 = st.columns(3)
 
@@ -3215,7 +3215,7 @@ with tab_exec:
             tch = ch_rev.index[0]
             tch_pct = ch_rev.iloc[0] / curr_rev * 100 if curr_rev else 0
             insights_html.append(
-                f"<div class='insight'><div class='ic'>â˜…</div>"
+                f"<div class='insight'><div class='ic'>★</div>"
                 f"<div class='tx'><b>{tch}</b> leads with <b>"
                 f"{fmt_money(ch_rev.iloc[0], CURRENCY, compact=True)}</b> "
                 f"({tch_pct:.1f}% of revenue).</div></div>"
@@ -3223,7 +3223,7 @@ with tab_exec:
         # Growth flag
         if prev_rev:
             grw = (curr_rev - prev_rev) / prev_rev * 100
-            arrow = "â–²" if grw >= 0 else "â–¼"
+            arrow = "▲" if grw >= 0 else "▼"
             insights_html.append(
                 f"<div class='insight'><div class='ic'>{arrow}</div>"
                 f"<div class='tx'>Revenue is <b>{abs(grw):.1f}%</b> "
@@ -3234,7 +3234,7 @@ with tab_exec:
         if not by_day.empty:
             best_day = by_day.idxmax()
             insights_html.append(
-                f"<div class='insight'><div class='ic'>â—†</div>"
+                f"<div class='insight'><div class='ic'>◆</div>"
                 f"<div class='tx'>Best single day: <b>{best_day.strftime('%d %b %Y')}</b> "
                 f"with <b>{fmt_money(by_day.max(), CURRENCY, compact=True)}</b>.</div></div>"
             )
@@ -3243,8 +3243,8 @@ with tab_exec:
         if not cust_rev.empty:
             tc = cust_rev.index[0]
             insights_html.append(
-                f"<div class='insight'><div class='ic'>â™¦</div>"
-                f"<div class='tx'>Top customer: <b>{tc}</b> â€” "
+                f"<div class='insight'><div class='ic'>♦</div>"
+                f"<div class='tx'>Top customer: <b>{tc}</b> — "
                 f"<b>{fmt_money(cust_rev.iloc[0], CURRENCY, compact=True)}</b>.</div></div>"
             )
     insights_html.append("</div>")
@@ -3253,7 +3253,7 @@ with tab_exec:
     # --- Multi-year YTD line ---
     c1, c2 = st.columns([3, 2])
     with c1:
-        st.markdown("<div class='sec'><h3>Revenue trajectory Â· YTD by year</h3>"
+        st.markdown("<div class='sec'><h3>Revenue trajectory · YTD by year</h3>"
                     "<div class='sec-sub'>Cumulative net revenue, day-of-year basis</div></div>",
                     unsafe_allow_html=True)
         if years_with_data:
@@ -3281,7 +3281,7 @@ with tab_exec:
                     textposition="top right",
                     textfont=dict(color=color, size=11),
                     cliponaxis=False,
-                    hovertemplate=f"<b>{y}</b> Â· day %{{x}}<br>"
+                    hovertemplate=f"<b>{y}</b> · day %{{x}}<br>"
                                   f"%{{y:,.0f}} {CURRENCY}<extra></extra>",
                 ))
             fig.update_xaxes(title=None,
@@ -3295,7 +3295,7 @@ with tab_exec:
 
     with c2:
         st.markdown("<div class='sec'><h3>Revenue by product category</h3>"
-                    f"<div class='sec-sub'>{scope_label} Â· sub-category mix</div></div>",
+                    f"<div class='sec-sub'>{scope_label} · sub-category mix</div></div>",
                     unsafe_allow_html=True)
         if df_curr.empty:
             st.info("No data in selected window.")
@@ -3424,7 +3424,7 @@ with tab_exec:
     # ---- Revenue by supplier (third Exec Summary chart) ----
     st.markdown("<div class='sec' style='margin-top:14px'>"
                 "<h3>Revenue by supplier</h3>"
-                f"<div class='sec-sub'>{scope_label} Â· top suppliers by net revenue</div></div>",
+                f"<div class='sec-sub'>{scope_label} · top suppliers by net revenue</div></div>",
                 unsafe_allow_html=True)
     if df_curr.empty:
         st.info("No data in selected window.")
@@ -3522,7 +3522,7 @@ with tab_exec:
                 with sb:
                     st.markdown("<div class='sec'><h3>Top 15 suppliers</h3>"
                                 "<div class='sec-sub'>All vendors, not just the donut "
-                                "highlights â€” drill into 'Other'</div></div>",
+                                "highlights — drill into 'Other'</div></div>",
                                 unsafe_allow_html=True)
                     top15_sup = sup_rev_full.head(15).reset_index()
                     top15_sup.columns = ["Supplier", f"Revenue ({CURRENCY})"]
@@ -3630,9 +3630,9 @@ with tab_shifts:
              else "Orders &amp; Shift Analytics")
     st.markdown(
         f"<div class='sec'><h3>{title}</h3>"
-        f"<div class='sec-sub'>{scope_label} Â· {sh_start:%d %b} â†’ "
-        f"{sh_end:%d %b %Y} ({win_days} days) &nbsp;Â·&nbsp; Day 10:00â€“17:00 "
-        "&nbsp;Â·&nbsp; Evening 17:00â€“01:00 &nbsp;Â·&nbsp; "
+        f"<div class='sec-sub'>{scope_label} · {sh_start:%d %b} → "
+        f"{sh_end:%d %b %Y} ({win_days} days) &nbsp;·&nbsp; Day 10:00–17:00 "
+        "&nbsp;·&nbsp; Evening 17:00–01:00 &nbsp;·&nbsp; "
         f"channels: {ch_note}</div></div>",
         unsafe_allow_html=True,
     )
@@ -3645,21 +3645,21 @@ with tab_shifts:
         busiest_n = int(by_day.max())
         busiest_lbl = busiest_day.strftime("%a %d %b")
     else:
-        busiest_lbl, busiest_n = "â€”", 0
+        busiest_lbl, busiest_n = "—", 0
     day_share = (n_day / n_orders * 100) if n_orders else 0
     eve_share = (n_eve / n_orders * 100) if n_orders else 0
 
     kpis = "<div class='kpi-grid' style='margin-top:6px'>"
     kpis += kpi_card(
-        "Orders Â· period", f"{n_orders:,}",
+        "Orders · period", f"{n_orders:,}",
         delta_html(n_orders, n_orders_prev, "vs prior period"),
         f"Prior: {n_orders_prev:,}")
     kpis += kpi_card(
-        "Day shift Â· 10â€“17", f"{n_day:,}",
+        "Day shift · 10–17", f"{n_day:,}",
         delta_html(n_day, day_prev, "vs prior period"),
         f"{day_share:.0f}% of orders")
     kpis += kpi_card(
-        "Evening shift Â· 17â€“01", f"{n_eve:,}",
+        "Evening shift · 17–01", f"{n_eve:,}",
         delta_html(n_eve, eve_prev, "vs prior period"),
         f"{eve_share:.0f}% of orders")
     kpis += kpi_card(
@@ -3685,7 +3685,7 @@ with tab_shifts:
         dom_share = dom_n / n_orders * 100 if n_orders else 0
         insights.append(
             f"The <b>{dom} shift</b> drives <b>{dom_share:.0f}%</b> of {noun} "
-            f"this period â€” <b>{dom_n:,}</b> vs <b>{oth_n:,}</b> on the "
+            f"this period — <b>{dom_n:,}</b> vs <b>{oth_n:,}</b> on the "
             "other shift.")
         ph = conf_cur.groupby("hour").size()
         if not ph.empty:
@@ -3694,7 +3694,7 @@ with tab_shifts:
             rush = "evening" if (peak_h >= 17 or peak_h < 1) else "afternoon"
             insights.append(
                 f"Peak hour is <b>{peak_h:02d}:00</b> with <b>{peak_hn:,}</b> "
-                f"orders â€” concentrate staffing around the {rush} rush.")
+                f"orders — concentrate staffing around the {rush} rush.")
         if n_orders_prev:
             d = (n_orders - n_orders_prev) / n_orders_prev * 100
             insights.append(
@@ -3710,11 +3710,11 @@ with tab_shifts:
         placed = n_orders + n_cancel
         if placed:
             insights.append(
-                f"<b>{n_cancel:,}</b> orders were cancelled this period â€” "
+                f"<b>{n_cancel:,}</b> orders were cancelled this period — "
                 f"<b>{n_cancel / placed * 100:.0f}%</b> of all placed.")
         if n_off:
             insights.append(
-                f"<b>{n_off:,}</b> orders landed off-shift (01:00â€“10:00).")
+                f"<b>{n_off:,}</b> orders landed off-shift (01:00–10:00).")
         insights.append(
             f"<b>{n_draft:,}</b> draft quotation(s) pending in Odoo."
             if n_draft else
@@ -3723,7 +3723,7 @@ with tab_shifts:
         insights.append(f"No {noun} matched the current filters in this period.")
     items = "".join(f"<li>{t}</li>" for t in insights)
     st.markdown(
-        "<div class='insight-card'><div class='insight-title'>â—† Smart insights"
+        "<div class='insight-card'><div class='insight-title'>◆ Smart insights"
         f"</div><ul class='insight-list'>{items}</ul></div>",
         unsafe_allow_html=True,
     )
@@ -3731,7 +3731,7 @@ with tab_shifts:
     # ---------- Daily orders by shift (stacked) ----------
     st.markdown(
         "<div class='sec' style='margin-top:18px'><h3>Daily orders by shift</h3>"
-        "<div class='sec-sub'>Stacked â€” day vs evening vs off-hours</div></div>",
+        "<div class='sec-sub'>Stacked — day vs evening vs off-hours</div></div>",
         unsafe_allow_html=True)
     if n_orders:
         fig = go.Figure()
@@ -3803,9 +3803,9 @@ with tab_shifts:
         else:
             st.info("No data.")
 
-    # ---------- Weekday Ã— hour heatmap (scales to any window) ----------
+    # ---------- Weekday × hour heatmap (scales to any window) ----------
     st.markdown(
-        "<div class='sec' style='margin-top:14px'><h3>Order intensity Â· weekday Ã— hour"
+        "<div class='sec' style='margin-top:14px'><h3>Order intensity · weekday × hour"
         "</h3><div class='sec-sub'>Order counts aggregated across the period; "
         "brighter = busier</div></div>",
         unsafe_allow_html=True)
@@ -3822,7 +3822,7 @@ with tab_shifts:
             colorscale=[[0, "#0A0A0B"], [0.45, "#3a2f5e"], [1, "#A78BFA"]],
             text=text_z, texttemplate="%{text}",
             textfont=dict(size=9, color="#E4E4E7"),
-            hovertemplate="%{y} Â· %{x}:00<br>%{z} orders<extra></extra>",
+            hovertemplate="%{y} · %{x}:00<br>%{z} orders<extra></extra>",
             showscale=False, xgap=1, ygap=2,
         ))
         st.plotly_chart(style_fig(fig, height=300, show_legend=False),
@@ -3832,7 +3832,7 @@ with tab_shifts:
 
     # ---------- Orders vs draft daily trend ----------
     st.markdown(
-        "<div class='sec' style='margin-top:14px'><h3>Orders vs draft Â· daily</h3>"
+        "<div class='sec' style='margin-top:14px'><h3>Orders vs draft · daily</h3>"
         "<div class='sec-sub'>Order counts across the period</div></div>",
         unsafe_allow_html=True)
     on_daily = [int((conf_cur["day"] == d).sum()) if not conf_cur.empty else 0
@@ -3887,7 +3887,7 @@ with tab_shifts:
              f"<td>{tot['dr']}</td><td>{tot['cn']}</td></tr>")
     st.markdown(
         "<table class='shift-table'><thead><tr>"
-        "<th>Date</th><th>Day 10â€“17</th><th>Evening 17â€“01</th><th>Off 01â€“10</th>"
+        "<th>Date</th><th>Day 10–17</th><th>Evening 17–01</th><th>Off 01–10</th>"
         "<th>Total orders</th><th>Draft</th><th>Cancelled</th>"
         f"</tr></thead><tbody>{body}</tbody></table>",
         unsafe_allow_html=True)
@@ -3896,8 +3896,8 @@ with tab_shifts:
     st.markdown(
         "<div class='sec' style='margin-top:24px'><h3>Delivery performance</h3>"
         "<div class='sec-sub'>Real delivery orders (excludes in-store pickups) "
-        "linked to sales placed in this period &nbsp;Â·&nbsp; lead time = order "
-        "placed â†’ delivery completed</div></div>",
+        "linked to sales placed in this period &nbsp;·&nbsp; lead time = order "
+        "placed → delivery completed</div></div>",
         unsafe_allow_html=True)
 
     dlv_rows = fetch_delivery_orders(
@@ -3936,7 +3936,7 @@ with tab_shifts:
 
     def _fmt_h(h):
         if h is None:
-            return "â€”"
+            return "—"
         if h < 1:
             return f"{h * 60:.0f} min"
         if h < 48:
@@ -3966,13 +3966,13 @@ with tab_shifts:
             top_carrier = str(cm_all.index[0])
             top_share = cm_all.iloc[0] / len(ddf) * 100
         else:
-            top_carrier, top_share = "â€”", 0
+            top_carrier, top_share = "—", 0
 
         dk = "<div class='kpi-grid' style='margin-top:6px'>"
-        dk += kpi_card("Deliveries Â· period", f"{len(ddf):,}",
+        dk += kpi_card("Deliveries · period", f"{len(ddf):,}",
                        "", f"{len(done_d):,} completed")
         dk += kpi_card("Typical lead time", _fmt_h(med_lead),
-                       "median order â†’ delivered", f"p90: {_fmt_h(p90_lead)}")
+                       "median order → delivered", f"p90: {_fmt_h(p90_lead)}")
         dk += kpi_card("Within 2 hours", f"{within2:.0f}%",
                        "of completed deliveries", f"Within 24h: {within24:.0f}%")
         dk += kpi_card("In transit", f"{len(pend_d):,}",
@@ -4011,7 +4011,7 @@ with tab_shifts:
             if slowtail:
                 dins.append(
                     f"<b>{len(slowtail)}</b> deliveries took over 2 days "
-                    f"(slowest {_fmt_h(max(lead))}) â€” these drag the average to "
+                    f"(slowest {_fmt_h(max(lead))}) — these drag the average to "
                     f"{_fmt_h(sum(lead) / len(lead))}; worth investigating.")
         if len(pend_d):
             dins.append(
@@ -4024,7 +4024,7 @@ with tab_shifts:
             dins.append("No completed deliveries with usable timing in this period.")
         ditems = "".join(f"<li>{t}</li>" for t in dins)
         st.markdown(
-            "<div class='insight-card'><div class='insight-title'>â—† Delivery "
+            "<div class='insight-card'><div class='insight-title'>◆ Delivery "
             f"insights</div><ul class='insight-list'>{ditems}</ul></div>",
             unsafe_allow_html=True)
 
@@ -4036,19 +4036,19 @@ with tab_shifts:
                 "<div class='sec-sub'>Completed deliveries by lead-time bucket</div></div>",
                 unsafe_allow_html=True)
             if lead:
-                buckets = ["<1h", "1â€“2h", "2â€“6h", "6â€“24h", "1â€“2d", ">2d"]
+                buckets = ["<1h", "1–2h", "2–6h", "6–24h", "1–2d", ">2d"]
 
                 def _bk(h):
                     if h < 1:
                         return "<1h"
                     if h < 2:
-                        return "1â€“2h"
+                        return "1–2h"
                     if h < 6:
-                        return "2â€“6h"
+                        return "2–6h"
                     if h < 24:
-                        return "6â€“24h"
+                        return "6–24h"
                     if h < 48:
-                        return "1â€“2d"
+                        return "1–2d"
                     return ">2d"
                 bc = {b: 0 for b in buckets}
                 for x in lead:
@@ -4096,7 +4096,7 @@ with tab_shifts:
                 meds = [_median(done_d[done_d["shift"] == sh]["lead_hours"]
                                 .dropna().tolist()) for sh in sh_present]
                 fig = go.Figure(go.Bar(
-                    x=[s.split(" Â·")[0] for s in sh_present], y=meds,
+                    x=[s.split(" ·")[0] for s in sh_present], y=meds,
                     marker=dict(color=[SHIFT_COLORS[s] for s in sh_present]),
                     text=[_fmt_h(v) for v in meds],
                     textposition="outside",
@@ -4109,7 +4109,7 @@ with tab_shifts:
                 st.info("No data.")
         with d4:
             st.markdown(
-                "<div class='sec'><h3>Deliveries completed Â· daily</h3>"
+                "<div class='sec'><h3>Deliveries completed · daily</h3>"
                 "<div class='sec-sub'>Across the period</div></div>",
                 unsafe_allow_html=True)
             if not done_d.empty:
@@ -4127,11 +4127,11 @@ with tab_shifts:
             else:
                 st.info("No data.")
 
-        # ============ FLEET CAPACITY â€” do you need another car? ============
+        # ============ FLEET CAPACITY — do you need another car? ============
         st.markdown(
-            "<div class='sec' style='margin-top:20px'><h3>Fleet capacity Â· do you "
+            "<div class='sec' style='margin-top:20px'><h3>Fleet capacity · do you "
             "need another delivery car?</h3><div class='sec-sub'>Set the three "
-            "inputs to match your operation â€” the verdict recalculates live</div></div>",
+            "inputs to match your operation — the verdict recalculates live</div></div>",
             unsafe_allow_html=True)
         fc1, fc2, fc3 = st.columns(3)
         with fc1:
@@ -4184,12 +4184,12 @@ with tab_shifts:
                        "Keep the fleet as-is.")
             vcolor = "#22C55E"
         elif add_permanent == 0:
-            headline = "No permanent increase â€” keep cars on-call for spikes"
+            headline = "No permanent increase — keep cars on-call for spikes"
             big = f"+{add_spikes} on-call"
             verdict = (f"Your <b>{cars_now}</b> cars cover the typical evening peak "
                        f"(~{typical_peak:.0f}/hr) at {util_typical:.0f}% utilisation, "
                        "so no permanent car is required. The very busiest hours "
-                       f"({worst_peak}/hr) would need up to <b>{req_worst}</b> cars â€” "
+                       f"({worst_peak}/hr) would need up to <b>{req_worst}</b> cars — "
                        f"keep <b>{add_spikes}</b> on-call / part-time for those "
                        "spikes rather than buying permanently.")
             vcolor = "#F5B544"
@@ -4199,7 +4199,7 @@ with tab_shifts:
             verdict = (f"Your <b>{cars_now}</b> cars are below the typical evening "
                        f"peak of ~{typical_peak:.0f}/hr, which needs "
                        f"<b>{req_typical}</b> cars. <b>Add {add_permanent}</b> "
-                       f"permanently (5 â†’ {req_typical}) to keep up on a normal "
+                       f"permanently (5 → {req_typical}) to keep up on a normal "
                        f"night; the very busiest hours ({worst_peak}/hr) would need "
                        f"up to {req_worst}, so consider {max(0, add_spikes - add_permanent)} "
                        "more on-call on top.")
@@ -4211,7 +4211,7 @@ with tab_shifts:
                        f"Fleet capacity {fleet_cap:.1f}/hr")
         ck += kpi_card("Typical peak demand", f"{typical_peak:.0f}/hr",
                        "avg of each day's busiest hour",
-                       f"Busy night (p90): {worst_peak}/hr Â· max {extreme_peak}/hr")
+                       f"Busy night (p90): {worst_peak}/hr · max {extreme_peak}/hr")
         ck += kpi_card("Recommended fleet", f"{req_typical}",
                        "to cover the typical peak",
                        f"Busy nights need {req_worst}")
@@ -4221,7 +4221,7 @@ with tab_shifts:
         ck += kpi_card("On-call for spikes", f"{add_spikes}",
                        "extra cars for worst hours", "part-time / surge")
         ck += kpi_card("Capacity per car", f"{per_car_cap:.1f}/hr",
-                       f"at {rt_min} min Â· {batch}/trip", "")
+                       f"at {rt_min} min · {batch}/trip", "")
         ck += "</div>"
         st.markdown(ck, unsafe_allow_html=True)
 
@@ -4234,7 +4234,7 @@ with tab_shifts:
             "text-transform:uppercase;letter-spacing:0.10em;margin-top:4px'>"
             "cars</div></div>"
             f"<div><div class='insight-title' style='color:{vcolor}'>"
-            f"â—† Recommendation â€” {headline}</div>"
+            f"◆ Recommendation — {headline}</div>"
             f"<div style='color:#E4E4E7;font-size:13.5px;line-height:1.7'>{verdict}"
             "</div></div></div>", unsafe_allow_html=True)
 
@@ -4267,7 +4267,7 @@ with tab_shifts:
 with tab_pace:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-    # Determine the "active period" for pacing â€” the natural period container
+    # Determine the "active period" for pacing — the natural period container
     # for the current scope. Most useful for short scopes (Today, Week, Month, YTD).
     if scope == "Today":
         pace_start, pace_end = today_local, today_local
@@ -4300,7 +4300,7 @@ with tab_pace:
     pace_rev = float(df_pace["amount_total"].sum()) if not df_pace.empty else 0.0
 
     # Build a baseline from the prior 3 equivalent periods (e.g., last 3 months
-    # for a monthly scope) â€” gives a more stable reference than just last cycle.
+    # for a monthly scope) — gives a more stable reference than just last cycle.
     def _prior_avg(start, end, n=3):
         span = (end - start).days + 1
         totals = []
@@ -4319,8 +4319,8 @@ with tab_pace:
     # ---------- Header ----------
     st.markdown(
         "<div class='sec'><h3>Pacing & forecast</h3>"
-        f"<div class='sec-sub'>{pace_label} Â· {pace_start.strftime('%d %b')} â†’ "
-        f"{pace_end.strftime('%d %b %Y')} Â· {pct_elapsed*100:.0f}% elapsed</div></div>",
+        f"<div class='sec-sub'>{pace_label} · {pace_start.strftime('%d %b')} → "
+        f"{pace_end.strftime('%d %b %Y')} · {pct_elapsed*100:.0f}% elapsed</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -4334,7 +4334,7 @@ with tab_pace:
             mode="gauge+number",
             value=pace_rev,
             number={"valueformat": ",.0f", "font": {"size": 30, "color": "#F4F4F5"}},
-            title={"text": f"<span style='color:#A1A1AA;font-size:11px'>{pace_label} Â· current</span>",
+            title={"text": f"<span style='color:#A1A1AA;font-size:11px'>{pace_label} · current</span>",
                    "font": {"size": 12}},
             gauge={
                 "axis": {"range": [0, gauge_max],
@@ -4369,11 +4369,11 @@ with tab_pace:
         # 4 sub-KPIs
         if pace_pct is not None:
             if pace_pct >= 105:
-                pace_status = ("Ahead of pace", "kpi-delta-up", "â–²")
+                pace_status = ("Ahead of pace", "kpi-delta-up", "▲")
             elif pace_pct >= 95:
-                pace_status = ("On pace", "", "â—")
+                pace_status = ("On pace", "", "●")
             else:
-                pace_status = ("Behind pace", "kpi-delta-dn", "â–¼")
+                pace_status = ("Behind pace", "kpi-delta-dn", "▼")
         else:
             pace_status = ("No prior baseline", "", "")
 
@@ -4399,7 +4399,7 @@ with tab_pace:
             kpi_html += kpi_card(
                 "Required daily run-rate",
                 fmt_money(max(0, required), CURRENCY, compact=True),
-                f"To match baseline by period end Â· {days_left} days remaining",
+                f"To match baseline by period end · {days_left} days remaining",
                 "",
             )
         else:
@@ -4413,7 +4413,7 @@ with tab_pace:
         if baseline:
             fdiff = (forecast - baseline) / baseline * 100
             cls = "kpi-delta-up" if fdiff >= 0 else "kpi-delta-dn"
-            arrow = "â–²" if fdiff >= 0 else "â–¼"
+            arrow = "▲" if fdiff >= 0 else "▼"
             kpi_html += kpi_card(
                 "Forecast vs baseline",
                 f"<span class='{cls}'>{arrow} {abs(fdiff):.1f}%</span>",
@@ -4446,7 +4446,7 @@ with tab_pace:
                 y=[cum.get(j, cum[cum.index <= j].max() if any(cum.index <= j) else 0)
                    for j in range(span)],
                 mode="lines",
-                name=f"{ps.strftime('%d %b')} â†’ {pe.strftime('%d %b')}",
+                name=f"{ps.strftime('%d %b')} → {pe.strftime('%d %b')}",
                 line=dict(width=1.5, color="#52525B", dash="dot"),
                 opacity=0.6,
                 hovertemplate="Day %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
@@ -4487,7 +4487,7 @@ with tab_pace:
     # ---------- 7-day momentum ----------
     st.markdown("<div class='sec' style='margin-top:14px'>"
                 "<h3>7-day momentum</h3>"
-                "<div class='sec-sub'>Rolling 7-day revenue Â· last 60 days</div></div>",
+                "<div class='sec-sub'>Rolling 7-day revenue · last 60 days</div></div>",
                 unsafe_allow_html=True)
     cutoff = today_local - timedelta(days=59)
     d60 = df[df["day"] >= cutoff].copy()
@@ -4516,7 +4516,7 @@ with tab_profit:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sec'><h3>Profitability</h3>"
-        f"<div class='sec-sub'>{scope_label} Â· gross profit and margin %, "
+        f"<div class='sec-sub'>{scope_label} · gross profit and margin %, "
         "from Odoo's per-order margin field (real cost data)</div></div>",
         unsafe_allow_html=True,
     )
@@ -4570,7 +4570,7 @@ with tab_profit:
             kpi_html += kpi_card(
                 "Highest-margin channel",
                 f"<span style='color:#19E3B6'>{best['channel']}</span>",
-                f"<b>{best['gm_pct']:.1f}%</b> margin Â· "
+                f"<b>{best['gm_pct']:.1f}%</b> margin · "
                 f"{fmt_money(best['prof'], CURRENCY, compact=True)} profit",
                 "",
             )
@@ -4665,7 +4665,7 @@ with tab_profit:
             },
         )
 
-        # ---- Top profit drivers (customers & salespeople) â€” leaderboard style ----
+        # ---- Top profit drivers (customers & salespeople) — leaderboard style ----
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("<div class='sec'><h3>Top customers by profit</h3></div>",
@@ -4713,7 +4713,7 @@ with tab_profit:
 def _pnl_category_of(name, code):
     """Bucket an Odoo expense account into a P&L category."""
     n = (name or "").lower()
-    # Many accounts use 'Parent:Child' naming â€” take the parent as the bucket.
+    # Many accounts use 'Parent:Child' naming — take the parent as the bucket.
     parent = n.split(":")[0].strip()
     if parent:
         return parent.title()
@@ -4724,8 +4724,8 @@ with tab_pnl:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sec'><h3>Profit &amp; Loss Statement</h3>"
-        f"<div class='sec-sub'>{scope_label} Â· "
-        "live from Odoo GL Â· OpEx figures reflect everything posted to "
+        f"<div class='sec-sub'>{scope_label} · "
+        "live from Odoo GL · OpEx figures reflect everything posted to "
         "expense accounts company-wide</div></div>",
         unsafe_allow_html=True,
     )
@@ -4738,7 +4738,7 @@ with tab_pnl:
         unsafe_allow_html=True,
     )
 
-    # --- Date strings (account.move.line.date is a Date field â€” YYYY-MM-DD) ---
+    # --- Date strings (account.move.line.date is a Date field — YYYY-MM-DD) ---
     _pnl_curr_start_iso = curr_start.strftime("%Y-%m-%d")
     _pnl_curr_end_iso = curr_end.strftime("%Y-%m-%d")
     _pnl_prev_start_iso = prev_start.strftime("%Y-%m-%d")
@@ -4760,7 +4760,7 @@ with tab_pnl:
         exp_prev = fetch_expense_balances(_pnl_prev_start_iso, _pnl_prev_end_iso, hist_bucket)
 
     # Build {category -> total balance} from the GL. We INTENTIONALLY skip
-    # accounts whose name looks like a 'Cost of Goods Sold' variant â€” those
+    # accounts whose name looks like a 'Cost of Goods Sold' variant — those
     # are already captured by margin-based COGS on the Revenue half.
     def _is_cogs_account(name):
         n = (name or "").lower()
@@ -4812,9 +4812,9 @@ with tab_pnl:
     def _fmt_delta(c, p, unit="%"):
         d = _pct_delta(c, p)
         if d is None:
-            return "<span style='color:#71717A'>â€”</span>"
+            return "<span style='color:#71717A'>—</span>"
         cls = "kpi-delta-up" if d >= 0 else "kpi-delta-dn"
-        sign = "â–²" if d >= 0 else "â–¼"
+        sign = "▲" if d >= 0 else "▼"
         return (f"<span class='{cls}'>{sign} {abs(d):.1f}%</span>")
 
     # --- Render P&L table as styled HTML ---
@@ -4861,7 +4861,7 @@ with tab_pnl:
     st.markdown(css_seed, unsafe_allow_html=True)
 
     def _row(label, c_val, p_val, *, is_neg=False, css_class="", sub=False):
-        delta = _fmt_delta(c_val, p_val) if p_val or c_val else "â€”"
+        delta = _fmt_delta(c_val, p_val) if p_val or c_val else "—"
         label_cls = "pnl-sub-label" if sub else "pnl-row-label"
         c_str = f"({_fmt_num(abs(c_val))})" if is_neg else _fmt_num(c_val)
         p_str = f"({_fmt_num(abs(p_val))})" if is_neg else _fmt_num(p_val)
@@ -4880,7 +4880,7 @@ with tab_pnl:
         f"<thead><tr><th>Line Item</th>"
         f"<th>{scope_label} ({CURRENCY})</th>"
         f"<th>Prior period ({CURRENCY})</th>"
-        f"<th>Î” %</th></tr></thead><tbody>"
+        f"<th>Δ %</th></tr></thead><tbody>"
     )
     # Revenue
     table_html.append(_row("Revenue (net of VAT)", pnl_rev_curr, pnl_rev_prev,
@@ -4894,9 +4894,9 @@ with tab_pnl:
     gm_prev = _gm_pct(pnl_gp_prev, pnl_rev_prev)
     ppt_delta = gm_curr - gm_prev
     ppt_cls = "kpi-delta-up" if ppt_delta >= 0 else "kpi-delta-dn"
-    ppt_sign = "â–²" if ppt_delta >= 0 else "â–¼"
+    ppt_sign = "▲" if ppt_delta >= 0 else "▼"
     ppt_html = (f"<span class='{ppt_cls}'>{ppt_sign} {abs(ppt_delta):.1f} ppt</span>"
-                if pnl_rev_prev else "<span style='color:#71717A'>â€”</span>")
+                if pnl_rev_prev else "<span style='color:#71717A'>—</span>")
     table_html.append(
         f"<tr><td class='pnl-sub-label'><i>Gross Margin %</i></td>"
         f"<td><i>{gm_curr:.1f}%</i></td>"
@@ -4953,8 +4953,8 @@ with tab_pnl:
 
     # --- Visual: OpEx breakdown (horizontal bar) ---
     st.markdown(
-        "<div class='sec' style='margin-top:18px'><h3>Operating expenses Â· breakdown</h3>"
-        "<div class='sec-sub'>Posted to Odoo this period â€” top categories</div></div>",
+        "<div class='sec' style='margin-top:18px'><h3>Operating expenses · breakdown</h3>"
+        "<div class='sec-sub'>Posted to Odoo this period — top categories</div></div>",
         unsafe_allow_html=True,
     )
     if not opex_curr:
@@ -4981,7 +4981,7 @@ with tab_pnl:
     # --- Detailed account-level table (drill-down) ---
     st.markdown(
         "<div class='sec' style='margin-top:18px'><h3>Detailed account ledger</h3>"
-        "<div class='sec-sub'>Every expense account with a non-zero balance Â· sortable</div></div>",
+        "<div class='sec-sub'>Every expense account with a non-zero balance · sortable</div></div>",
         unsafe_allow_html=True,
     )
     detail_rows = []
@@ -4995,7 +4995,7 @@ with tab_pnl:
             "Type": r["type"],
             f"Period ({CURRENCY})": r["balance"],
             f"Prior ({CURRENCY})": prev_bal,
-            "Î” %": ((r["balance"] - prev_bal) / prev_bal * 100) if prev_bal else None,
+            "Δ %": ((r["balance"] - prev_bal) / prev_bal * 100) if prev_bal else None,
         })
     if detail_rows:
         det_df = pd.DataFrame(detail_rows).sort_values(
@@ -5009,13 +5009,13 @@ with tab_pnl:
                     f"Period ({CURRENCY})", format="%,.0f",
                     min_value=0, max_value=float(_max_pnl_amt)),
                 f"Prior ({CURRENCY})": st.column_config.NumberColumn(format="%,.0f"),
-                "Î” %": st.column_config.NumberColumn(format="%.1f%%"),
+                "Δ %": st.column_config.NumberColumn(format="%.1f%%"),
             },
         )
     else:
         st.caption(
             "<span style='color:#71717A;font-size:11.5px'>"
-            "Every expense account is at zero for this period â€” the GL "
+            "Every expense account is at zero for this period — the GL "
             "doesn't have OpEx postings yet."
             "</span>",
             unsafe_allow_html=True,
@@ -5027,7 +5027,7 @@ with tab_sku:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sec'><h3>Products &amp; SKUs</h3>"
-        f"<div class='sec-sub'>{scope_label} Â· what's actually selling, "
+        f"<div class='sec-sub'>{scope_label} · what's actually selling, "
         "from real Odoo order lines (sale.order.line + pos.order.line)</div></div>",
         unsafe_allow_html=True,
     )
@@ -5076,11 +5076,11 @@ with tab_sku:
 
             def _cat_lookup(pid, key):
                 if pid is None or pd.isna(pid):
-                    return "â€”"
+                    return "—"
                 try:
-                    return _cat_map.get(int(pid), {}).get(key, "â€”") or "â€”"
+                    return _cat_map.get(int(pid), {}).get(key, "—") or "—"
                 except (TypeError, ValueError):
-                    return "â€”"
+                    return "—"
 
             sku_df["subcategory"] = sku_df["product_id"].map(
                 lambda p: _cat_lookup(p, "subcategory"))
@@ -5096,7 +5096,7 @@ with tab_sku:
             top_sku_row = (sku_df.groupby(["product_id", "product_name"])
                            .agg(rev=("revenue", "sum"))
                            .reset_index().sort_values("rev", ascending=False))
-            top_sku_name = top_sku_row.iloc[0]["product_name"] if not top_sku_row.empty else "â€”"
+            top_sku_name = top_sku_row.iloc[0]["product_name"] if not top_sku_row.empty else "—"
             top_sku_rev = top_sku_row.iloc[0]["rev"] if not top_sku_row.empty else 0
 
             kpi_html = "<div class='kpi-grid'>"
@@ -5118,12 +5118,12 @@ with tab_sku:
                 f"<span style='color:#71717A'>at {avg_margin_pct:.1f}% gross margin</span>",
                 f"Profit: {fmt_money(total_margin, CURRENCY, compact=True)}",
             )
-            short_top = (top_sku_name[:38] + "â€¦") if len(top_sku_name) > 40 else top_sku_name
+            short_top = (top_sku_name[:38] + "…") if len(top_sku_name) > 40 else top_sku_name
             kpi_html += kpi_card(
                 "Best-selling SKU",
                 f"<span style='color:#19E3B6;font-size:18px'>{short_top}</span>",
                 f"<b>{fmt_money(top_sku_rev, CURRENCY, compact=True)}</b>"
-                f" <span style='color:#71717A'>Â· "
+                f" <span style='color:#71717A'>· "
                 f"{(top_sku_rev/total_rev*100 if total_rev else 0):.1f}% of revenue</span>",
                 "",
             )
@@ -5155,7 +5155,7 @@ with tab_sku:
                 # Trim long names
                 top15_disp = top15.copy()
                 top15_disp["short_name"] = top15_disp["product_name"].apply(
-                    lambda s: (s[:50] + "â€¦") if len(s) > 52 else s
+                    lambda s: (s[:50] + "…") if len(s) > 52 else s
                 )
                 fig = go.Figure(go.Bar(
                     y=top15_disp["short_name"][::-1],
@@ -5185,8 +5185,8 @@ with tab_sku:
                 # Build concentration buckets
                 rev_sorted = agg.sort_values("revenue", ascending=False)["revenue"].reset_index(drop=True)
                 buckets = []
-                for n, label in [(5, "Top 5"), (10, "Top 6â€“10"),
-                                  (25, "Top 11â€“25"), (50, "Top 26â€“50")]:
+                for n, label in [(5, "Top 5"), (10, "Top 6–10"),
+                                  (25, "Top 11–25"), (50, "Top 26–50")]:
                     if n == 5:
                         b = rev_sorted.head(5).sum()
                     else:
@@ -5253,8 +5253,8 @@ with tab_sku:
 
             # ---- Detailed table ----
             st.markdown("<div class='sec' style='margin-top:14px'>"
-                        "<h3>All products â€” detailed</h3>"
-                        f"<div class='sec-sub'>{unique_skus:,} SKUs Â· sortable, exportable</div>"
+                        "<h3>All products — detailed</h3>"
+                        f"<div class='sec-sub'>{unique_skus:,} SKUs · sortable, exportable</div>"
                         "</div>",
                         unsafe_allow_html=True)
             tbl = agg.sort_values("revenue", ascending=False).copy()
@@ -5294,7 +5294,7 @@ with tab_sku:
             # CSV export
             csv_bytes = tbl.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="â—Œ  Download SKUs as CSV",
+                label="◌  Download SKUs as CSV",
                 data=csv_bytes,
                 file_name=f"fyxx-skus-{curr_start}-to-{curr_end}.csv",
                 mime="text/csv",
@@ -5327,7 +5327,7 @@ with tab_sku:
                     pair_rows = []
                     for (a, b), n in top_pairs:
                         pair_rows.append({
-                            "Pair": f"{name_lookup.get(a, '?')[:35]}  â†”  {name_lookup.get(b, '?')[:35]}",
+                            "Pair": f"{name_lookup.get(a, '?')[:35]}  ↔  {name_lookup.get(b, '?')[:35]}",
                             "Times bought together": n,
                         })
                     pair_df = pd.DataFrame(pair_rows)
@@ -5349,8 +5349,8 @@ with tab_loss:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sec'><h3>Orders sold at a loss</h3>"
-        f"<div class='sec-sub'>{scope_label} Â· "
-        "every order whose Odoo margin is negative â€” sorted worst first</div></div>",
+        f"<div class='sec-sub'>{scope_label} · "
+        "every order whose Odoo margin is negative — sorted worst first</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -5406,8 +5406,8 @@ with tab_loss:
                 "Worst single order",
                 f"<span style='color:#F87171'>"
                 f"{fmt_money(abs(worst_order['margin']), CURRENCY)}</span>",
-                f"<b>{worst_order['name']}</b> Â· {worst_order['customer']}",
-                f"<span style='color:#71717A'>{worst_order['channel']} Â· "
+                f"<b>{worst_order['name']}</b> · {worst_order['customer']}",
+                f"<span style='color:#71717A'>{worst_order['channel']} · "
                 f"{worst_order['margin_pct']:.1f}% margin</span>",
             )
             avg_loss = total_loss / n_loss if n_loss else 0
@@ -5486,7 +5486,7 @@ with tab_loss:
             # ---- Loss trend over time ----
             st.markdown("<div class='sec' style='margin-top:14px'>"
                         "<h3>Loss trend</h3>"
-                        f"<div class='sec-sub'>Daily total loss Â· {scope_label}</div></div>",
+                        f"<div class='sec-sub'>Daily total loss · {scope_label}</div></div>",
                         unsafe_allow_html=True)
             daily_loss = (losses_df.groupby("day")
                           .agg(loss=("margin", "sum"),
@@ -5569,8 +5569,8 @@ with tab_loss:
 
             # ---- Detailed loss-orders table ----
             st.markdown("<div class='sec' style='margin-top:14px'>"
-                        "<h3>Every loss-making order â€” detailed</h3>"
-                        f"<div class='sec-sub'>{n_loss:,} orders Â· sorted by largest loss first Â· "
+                        "<h3>Every loss-making order — detailed</h3>"
+                        f"<div class='sec-sub'>{n_loss:,} orders · sorted by largest loss first · "
                         "click any column header to re-sort</div></div>",
                         unsafe_allow_html=True)
 
@@ -5620,7 +5620,7 @@ with tab_loss:
             # ---- CSV download ----
             csv_bytes = detail.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="â—Œ  Download loss orders as CSV",
+                label="◌  Download loss orders as CSV",
                 data=csv_bytes,
                 file_name=f"fyxx-loss-orders-{curr_start}-to-{curr_end}.csv",
                 mime="text/csv",
@@ -5633,14 +5633,14 @@ with tab_alerts:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='sec'><h3>Anomalies & alerts</h3>"
-        f"<div class='sec-sub'>{scope_label} Â· auto-detected outliers and risk signals</div></div>",
+        f"<div class='sec-sub'>{scope_label} · auto-detected outliers and risk signals</div></div>",
         unsafe_allow_html=True,
     )
 
     alerts = []  # list of (severity, icon, title, body)
 
     if not df_curr.empty:
-        # 1) Statistical day outliers (>2Ïƒ from mean of last 60 days baseline)
+        # 1) Statistical day outliers (>2σ from mean of last 60 days baseline)
         cutoff = today_local - timedelta(days=59)
         baseline_df = df[df["day"] >= cutoff]
         if not baseline_df.empty:
@@ -5651,16 +5651,16 @@ with tab_alerts:
                 if std_b > 0:
                     z = (v - mean_b) / std_b
                     if z >= 2:
-                        alerts.append(("good", "â–²",
-                            f"Outlier high day Â· {d_.strftime('%a %d %b')}",
+                        alerts.append(("good", "▲",
+                            f"Outlier high day · {d_.strftime('%a %d %b')}",
                             f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
-                            f"is <b>{z:.1f}Ïƒ above</b> the 60-day mean of "
+                            f"is <b>{z:.1f}σ above</b> the 60-day mean of "
                             f"{fmt_money(mean_b, CURRENCY, compact=True)}."))
                     elif z <= -2:
-                        alerts.append(("bad", "â–¼",
-                            f"Outlier low day Â· {d_.strftime('%a %d %b')}",
+                        alerts.append(("bad", "▼",
+                            f"Outlier low day · {d_.strftime('%a %d %b')}",
                             f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
-                            f"is <b>{abs(z):.1f}Ïƒ below</b> the 60-day mean."))
+                            f"is <b>{abs(z):.1f}σ below</b> the 60-day mean."))
 
         # 2) Concentration risk
         cust_rev = df_curr.groupby("customer")["amount_total"].sum().sort_values(ascending=False)
@@ -5668,17 +5668,17 @@ with tab_alerts:
         if len(cust_rev) > 0 and total > 0:
             top_share = cust_rev.iloc[0] / total * 100
             if top_share >= 25:
-                alerts.append(("warn", "â—†",
+                alerts.append(("warn", "◆",
                     f"Customer concentration risk",
                     f"<b>{cust_rev.index[0]}</b> accounts for "
-                    f"<b>{top_share:.1f}%</b> of revenue this period â€” "
+                    f"<b>{top_share:.1f}%</b> of revenue this period — "
                     f"single-customer dependency."))
             top10_share = cust_rev.head(10).sum() / total * 100
             if top10_share >= 70 and len(cust_rev) >= 10:
-                alerts.append(("warn", "â—†",
+                alerts.append(("warn", "◆",
                     f"Top-10 concentration",
                     f"Top 10 customers drive <b>{top10_share:.1f}%</b> "
-                    f"of revenue â€” diversification opportunity."))
+                    f"of revenue — diversification opportunity."))
 
         # 3) Channel deceleration vs baseline
         ch_curr_s = df_curr.groupby("channel")["amount_total"].sum()
@@ -5699,13 +5699,13 @@ with tab_alerts:
             if base > 0:
                 drop = (v - base) / base * 100
                 if drop <= -25:
-                    alerts.append(("bad", "â–¼",
+                    alerts.append(("bad", "▼",
                         f"{ch} significantly down",
                         f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
                         f"is <b>{abs(drop):.1f}% below</b> the 4-period baseline of "
                         f"{fmt_money(base, CURRENCY, compact=True)}."))
                 elif drop >= 30:
-                    alerts.append(("good", "â–²",
+                    alerts.append(("good", "▲",
                         f"{ch} significantly up",
                         f"Revenue of <b>{fmt_money(v, CURRENCY, compact=True)}</b> "
                         f"is <b>{drop:.1f}% above</b> the 4-period baseline of "
@@ -5729,15 +5729,15 @@ with tab_alerts:
                           .sort_values(ascending=False))
                 top_at_risk = ar_rev.head(5)
                 names_html = "<br>".join(
-                    f"&nbsp;&nbsp;â€¢ {c} â€” was {fmt_money(v, CURRENCY, compact=True)}"
+                    f"&nbsp;&nbsp;• {c} — was {fmt_money(v, CURRENCY, compact=True)}"
                     for c, v in top_at_risk.items()
                 )
-                alerts.append(("warn", "â—†",
+                alerts.append(("warn", "◆",
                     f"{len(at_risk)} at-risk regulars",
                     f"Customers with 3+ orders in the prior 60 days "
                     f"who haven't ordered in the last 30:<br>{names_html}"))
 
-        # 5) Profitability â€” overall margin compression vs baseline
+        # 5) Profitability — overall margin compression vs baseline
         if "margin" in df_curr.columns:
             curr_rev_a = float(df_curr["amount_total"].sum())
             curr_prof_a = float(df_curr["margin"].sum())
@@ -5758,7 +5758,7 @@ with tab_alerts:
             if base_gm > 0:
                 ppt_diff = curr_gm_a - base_gm
                 if ppt_diff <= -3:
-                    alerts.append(("bad", "â–¼",
+                    alerts.append(("bad", "▼",
                         "Margin compression",
                         f"Gross margin of <b>{curr_gm_a:.1f}%</b> is "
                         f"<b>{abs(ppt_diff):.1f}ppt below</b> the 4-period baseline "
@@ -5766,7 +5766,7 @@ with tab_alerts:
                         f"Profit dollars: {fmt_money(curr_prof_a, CURRENCY, compact=True)} "
                         f"on revenue of {fmt_money(curr_rev_a, CURRENCY, compact=True)}."))
                 elif ppt_diff >= 3:
-                    alerts.append(("good", "â–²",
+                    alerts.append(("good", "▲",
                         "Margin expansion",
                         f"Gross margin of <b>{curr_gm_a:.1f}%</b> is "
                         f"<b>{ppt_diff:.1f}ppt above</b> the 4-period baseline "
@@ -5781,16 +5781,16 @@ with tab_alerts:
                 top_losers = (losses.groupby("customer")["margin"].sum()
                               .sort_values().head(5))
                 names_html_l = "<br>".join(
-                    f"&nbsp;&nbsp;â€¢ {c} â€” loss of {fmt_money(abs(v), CURRENCY, compact=True)}"
+                    f"&nbsp;&nbsp;• {c} — loss of {fmt_money(abs(v), CURRENCY, compact=True)}"
                     for c, v in top_losers.items()
                 )
-                alerts.append(("bad", "âœ–",
+                alerts.append(("bad", "✖",
                     f"{len(losses)} loss-making orders",
                     f"Combined negative margin of "
                     f"<b>{fmt_money(abs(total_loss), CURRENCY, compact=True)}</b> "
                     f"this period. Worst customers:<br>{names_html_l}"))
 
-        # 7) Channel margin anomalies â€” channels whose margin diverges sharply
+        # 7) Channel margin anomalies — channels whose margin diverges sharply
         if "margin" in df_curr.columns:
             ch_curr_p = (df_curr.groupby("channel")
                          .agg(rev=("amount_total", "sum"),
@@ -5813,13 +5813,13 @@ with tab_alerts:
                     cgm = float(ch_curr_p.loc[ch_, "gm"])
                     diff = cgm - bgm
                     if diff <= -5:
-                        alerts.append(("bad", "â–¼",
+                        alerts.append(("bad", "▼",
                             f"{ch_} margin slipping",
                             f"Gross margin of <b>{cgm:.1f}%</b> is "
                             f"<b>{abs(diff):.1f}ppt below</b> "
                             f"its 4-period baseline of {bgm:.1f}%."))
                     elif diff >= 5:
-                        alerts.append(("good", "â–²",
+                        alerts.append(("good", "▲",
                             f"{ch_} margin improving",
                             f"Gross margin of <b>{cgm:.1f}%</b> is "
                             f"<b>{diff:.1f}ppt above</b> "
@@ -5841,13 +5841,13 @@ with tab_alerts:
                 low_gm = bigs[bigs["gm"] < 15].sort_values("rev", ascending=False).head(5)
                 if not low_gm.empty:
                     rows_html = "<br>".join(
-                        f"&nbsp;&nbsp;â€¢ {c} â€” {fmt_money(r['rev'], CURRENCY, compact=True)} rev "
+                        f"&nbsp;&nbsp;• {c} — {fmt_money(r['rev'], CURRENCY, compact=True)} rev "
                         f"at {r['gm']:.1f}% margin"
                         for c, r in low_gm.iterrows()
                     )
-                    alerts.append(("warn", "â—†",
+                    alerts.append(("warn", "◆",
                         "High revenue, thin margin",
-                        f"Top-decile customers whose gross margin is below 15% â€” "
+                        f"Top-decile customers whose gross margin is below 15% — "
                         f"candidates for re-pricing or cost review:<br>{rows_html}"))
 
         # 9) Best day callout
@@ -5857,16 +5857,16 @@ with tab_alerts:
             best_v = by_day.max()
             avg_v = by_day.mean()
             if avg_v and best_v / avg_v >= 1.5:
-                alerts.append(("good", "â˜…",
-                    f"Standout day Â· {best_day.strftime('%a %d %b')}",
-                    f"<b>{fmt_money(best_v, CURRENCY, compact=True)}</b> â€” "
-                    f"<b>{best_v/avg_v:.1f}Ã—</b> the period's daily average."))
+                alerts.append(("good", "★",
+                    f"Standout day · {best_day.strftime('%a %d %b')}",
+                    f"<b>{fmt_money(best_v, CURRENCY, compact=True)}</b> — "
+                    f"<b>{best_v/avg_v:.1f}×</b> the period's daily average."))
 
     # ---------- Render alerts ----------
     if not alerts:
         st.markdown(
             "<div class='brief-card'><p class='brief-callout brief-good'>"
-            "No anomalies detected for this period â€” performance is within "
+            "No anomalies detected for this period — performance is within "
             "normal ranges across customers and channels."
             "</p></div>",
             unsafe_allow_html=True,
@@ -5898,7 +5898,7 @@ with tab_alerts:
 with tab_trends:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div class='sec'><h3>Monthly revenue Â· year-over-year</h3>"
+    st.markdown("<div class='sec'><h3>Monthly revenue · year-over-year</h3>"
                 "<div class='sec-sub'>Same calendar month, compared across years</div></div>",
                 unsafe_allow_html=True)
     if years_with_data:
@@ -5922,7 +5922,7 @@ with tab_trends:
                 textposition="top center",
                 textfont=dict(color=color, size=10),
                 cliponaxis=False,
-                hovertemplate=f"<b>{y} Â· %{{x}}</b><br>"
+                hovertemplate=f"<b>{y} · %{{x}}</b><br>"
                               f"%{{y:,.0f}} {CURRENCY}<extra></extra>",
             ))
         st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
@@ -5931,13 +5931,13 @@ with tab_trends:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(f"<div class='sec'><h3>Daily revenue Â· {scope_label}</h3>"
+        st.markdown(f"<div class='sec'><h3>Daily revenue · {scope_label}</h3>"
                     "<div class='sec-sub'>Net of VAT</div></div>",
                     unsafe_allow_html=True)
         if not df_curr.empty:
             daily = (df_curr.groupby("day")["amount_total"].sum()
                      .sort_index().reset_index())
-            # Only attach text labels when there's room (â‰¤ 45 days)
+            # Only attach text labels when there's room (≤ 45 days)
             show_labels = len(daily) <= 45
             fig = go.Figure(go.Bar(
                 x=daily["day"], y=daily["amount_total"],
@@ -5957,7 +5957,7 @@ with tab_trends:
             st.info("No data in selected window.")
 
     with c2:
-        st.markdown("<div class='sec'><h3>Day-of-week Ã— hour heatmap</h3>"
+        st.markdown("<div class='sec'><h3>Day-of-week × hour heatmap</h3>"
                     f"<div class='sec-sub'>{scope_label}</div></div>",
                     unsafe_allow_html=True)
         if not df_curr.empty:
@@ -5978,7 +5978,7 @@ with tab_trends:
                 text=text_z,
                 texttemplate="%{text}",
                 textfont=dict(size=9, color="#0A0A0B"),
-                hovertemplate="%{y} Â· %{x}:00<br>"
+                hovertemplate="%{y} · %{x}:00<br>"
                               "%{z:,.0f} " + CURRENCY + "<extra></extra>",
                 showscale=False,
             ))
@@ -5992,7 +5992,7 @@ with tab_trends:
 with tab_channels:
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div class='sec'><h3>Channel performance Â· current vs prior</h3>"
+    st.markdown("<div class='sec'><h3>Channel performance · current vs prior</h3>"
                 "<div class='sec-sub'>Side-by-side, net of VAT</div></div>",
                 unsafe_allow_html=True)
     if not df_curr.empty:
@@ -6011,7 +6011,7 @@ with tab_channels:
             textposition="outside",
             textfont=dict(color=PALETTE["text_dim"], size=10),
             cliponaxis=False,
-            hovertemplate="Prior Â· %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+            hovertemplate="Prior · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         fig.add_trace(go.Bar(
             x=all_ch, y=curr_vals,
@@ -6021,14 +6021,14 @@ with tab_channels:
             textposition="outside",
             textfont=dict(color=PALETTE["neon"], size=10),
             cliponaxis=False,
-            hovertemplate="Current Â· %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+            hovertemplate="Current · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08)
         st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("<div class='sec'><h3>Channel Ã— year</h3></div>", unsafe_allow_html=True)
+        st.markdown("<div class='sec'><h3>Channel × year</h3></div>", unsafe_allow_html=True)
         if not df.empty:
             # Limit to years that actually have data
             cy_full = (df.groupby(["channel", "year"])["amount_total"].sum()
@@ -6050,7 +6050,7 @@ with tab_channels:
                         textposition="outside",
                         textfont=dict(color=color, size=10),
                         cliponaxis=False,
-                        hovertemplate=f"<b>%{{y}}</b> Â· {y}<br>"
+                        hovertemplate=f"<b>%{{y}}</b> · {y}<br>"
                                       f"%{{x:,.0f}} {CURRENCY}<extra></extra>",
                     ))
                 fig.update_layout(barmode="group")
@@ -6135,7 +6135,7 @@ with tab_customers:
             rest = total - top50
             cats = [
                 ("Top 10", top10),
-                ("Top 11â€“50", top50 - top10),
+                ("Top 11–50", top50 - top10),
                 ("Rest", rest),
             ]
             fig = go.Figure(data=[go.Pie(
@@ -6167,14 +6167,14 @@ with tab_cohorts:
     )
 
     # Exclude pseudo-customers that distort cohort math:
-    #  - "Walk-in"               (POS orders without a partner_id â€” lumped bucket)
+    #  - "Walk-in"               (POS orders without a partner_id — lumped bucket)
     #  - "Fyxx Operations (B2C)" (company self-purchase / internal entries)
-    #  - "â€”"                     (sale.orders without a partner_id)
+    #  - "—"                     (sale.orders without a partner_id)
     _COHORT_EXCLUDE = {
         "Walk-in", "walk-in", "Walk In", "walk in",
         "Fyxx Operations (B2C)", "fyxx operations (b2c)",
         "Fyxx Operations", "fyxx operations",
-        "â€”", "-", "",
+        "—", "-", "",
     }
     df_cohort_src = (df[~df["customer"].astype(str).str.strip().isin(_COHORT_EXCLUDE)]
                      if not df.empty else df)
@@ -6260,9 +6260,9 @@ with tab_cohorts:
             "",
         )
         kpi_html += kpi_card(
-            f"New vs returning Â· {scope_label}",
+            f"New vs returning · {scope_label}",
             f"{new_pct:.0f}% new",
-            f"<b>{fmt_money(new_rev, CURRENCY, compact=True)}</b> from new Â· "
+            f"<b>{fmt_money(new_rev, CURRENCY, compact=True)}</b> from new · "
             f"<b>{fmt_money(ret_rev, CURRENCY, compact=True)}</b> from returning",
             "",
         )
@@ -6301,7 +6301,7 @@ with tab_cohorts:
 
         # ---------- New vs Returning revenue over time ----------
         st.markdown("<div class='sec' style='margin-top:14px'>"
-                    "<h3>New vs returning revenue Â· monthly</h3></div>",
+                    "<h3>New vs returning revenue · monthly</h3></div>",
                     unsafe_allow_html=True)
         df_all = df_cohort_src.merge(first_order[["customer", "cohort"]],
                                      on="customer", how="left")
@@ -6435,13 +6435,13 @@ with tab_compare:
 
     def _delta_block(a_v, b_v, currency=False):
         if not b_v:
-            return "<span style='color:#71717A'>â€”</span>"
+            return "<span style='color:#71717A'>—</span>"
         pct = (a_v - b_v) / b_v * 100
         cls = "kpi-delta-up" if pct >= 0 else "kpi-delta-dn"
-        arrow = "â–²" if pct >= 0 else "â–¼"
+        arrow = "▲" if pct >= 0 else "▼"
         return f"<span class='{cls}'>{arrow} {abs(pct):.1f}%</span>"
 
-    # KPI grid: A | B | Î”
+    # KPI grid: A | B | Δ
     rows = [
         ("Revenue", fmt_money(a_rev, CURRENCY, compact=True),
          fmt_money(b_rev, CURRENCY, compact=True), _delta_block(a_rev, b_rev)),
@@ -6460,8 +6460,8 @@ with tab_compare:
         "font-weight:700;text-transform:uppercase;letter-spacing:0.12em;"
         "border-bottom:1px solid #23232B'>"
         "<div>Metric</div>"
-        f"<div style='color:#19E3B6'>A Â· {a_start.strftime('%d %b')} â†’ {a_end.strftime('%d %b')}</div>"
-        f"<div style='color:#A78BFA'>B Â· {b_start.strftime('%d %b')} â†’ {b_end.strftime('%d %b')}</div>"
+        f"<div style='color:#19E3B6'>A · {a_start.strftime('%d %b')} → {a_end.strftime('%d %b')}</div>"
+        f"<div style='color:#A78BFA'>B · {b_start.strftime('%d %b')} → {b_end.strftime('%d %b')}</div>"
         "<div>A vs B</div>"
         "</div>"
     )
@@ -6499,7 +6499,7 @@ with tab_compare:
             textposition="outside",
             textfont=dict(color="#19E3B6", size=10),
             cliponaxis=False,
-            hovertemplate="A Â· %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+            hovertemplate="A · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         fig.add_trace(go.Bar(
             x=all_ch, y=b_vals, name="B",
@@ -6508,7 +6508,7 @@ with tab_compare:
             textposition="outside",
             textfont=dict(color="#A78BFA", size=10),
             cliponaxis=False,
-            hovertemplate="B Â· %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
+            hovertemplate="B · %{x}<br>%{y:,.0f} " + CURRENCY + "<extra></extra>",
         ))
         fig.update_layout(barmode="group", bargap=0.25, bargroupgap=0.08)
         st.plotly_chart(style_fig(fig, height=380), use_container_width=True)
@@ -6544,8 +6544,8 @@ with tab_recent:
 st.markdown(
     f"<div style='text-align:center;color:#52525B;font-size:11px;"
     f"margin-top:36px;letter-spacing:0.04em'>"
-    f"Fyxx Executive Insights Â· read-only Â· Odoo {DB} Â· "
-    f"history cached {HISTORY_TTL//60} min Â· live tail {LIVE_TTL}s Â· "
+    f"Fyxx Executive Insights · read-only · Odoo {DB} · "
+    f"history cached {HISTORY_TTL//60} min · live tail {LIVE_TTL}s · "
     f"in-place refresh {REFRESH_SECONDS}s"
     f"</div>",
     unsafe_allow_html=True,
