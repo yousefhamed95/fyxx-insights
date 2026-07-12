@@ -69,7 +69,9 @@ if ($authed) {
   <form class="login" method="post" action="./">
     <div class="tag">Fyxx</div>
     <h1>Executive Insights</h1>
-    <input type="password" name="pw" placeholder="Password" autofocus autocomplete="current-password">
+    <input type="password" name="pw" placeholder="Password"
+           inputmode="numeric" pattern="[0-9]*"
+           autofocus autocomplete="current-password">
     <button type="submit">Enter dashboard</button>
     <?php if ($err): ?><div class="err"><?php echo htmlspecialchars($err); ?></div><?php endif; ?>
   </form>
