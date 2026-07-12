@@ -945,7 +945,7 @@ function renderPnl(el, w, ctx){
   el.innerHTML =
     sec("Profit &amp; Loss Statement", esc(w.label)+" · live from Odoo GL · OpEx figures reflect everything posted to expense accounts company-wide")+
     "<div class='note'>Revenue, COGS, and Gross Profit are channel-filtered. OpEx categories are <b>company-wide</b> (not channel-attributable). Lines with zero balance are hidden.</div>"+
-    t +
+    "<div class='pnl-wrap'>" + t + "</div>" +
     sec("Operating expenses · breakdown","Posted to Odoo this period — top categories",18)+
     `<div class='card'><div id='plOpex'></div></div>`+
     sec("Detailed account ledger","Every expense account with a non-zero balance",18)+
