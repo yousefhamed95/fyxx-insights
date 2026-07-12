@@ -1,9 +1,20 @@
 <?php
 // Fyxx Executive Insights — hosted edition (PHP 7.3 compatible).
 // Exact port of the Streamlit dashboard. Session password gate below.
+
+// SameSite=None; Secure lets the session cookie survive when the dashboard
+// is embedded in the portal's cross-origin iframe (huggingface space).
+// Falls back gracefully for direct (first-party) access.
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'secure'   => true,
+    'httponly' => true,
+    'samesite' => 'None',
+]);
 session_start();
 
-define('FYXX_PASSWORD', 'Fyxx#Insights2026');
+define('FYXX_PASSWORD', '2525');
 
 if (isset($_GET['logout'])) {
     unset($_SESSION['fyxx_auth']);
@@ -48,8 +59,8 @@ if ($authed) {
 <title>Fyxx Executive Insights</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="streamlit-port.css?v=2">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="streamlit-port.css?v=4">
+<link rel="stylesheet" href="style.css?v=4">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
 <body>
@@ -74,8 +85,6 @@ if ($authed) {
     <div class="fyxx-logo"><img src="fyxx-logo.png" alt="Fyxx"
          onerror="this.outerHTML='&lt;div class=logo-fallback&gt;FYXX&lt;/div&gt;'"></div>
     <p class="brand-tag">Executive Insights</p>
-    <h3 class="side-h">Years</h3>
-    <div class="pills" id="yearPills"></div>
     <div class="side-foot">
       <div id="lastupd">–</div>
       <button class="btn" onclick="location.reload()">↻ Refresh now</button>
@@ -125,8 +134,8 @@ if ($authed) {
   </main>
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<script src="app.js?v=2"></script>
-<script src="tabs2.js?v=2"></script>
+<script src="app.js?v=4"></script>
+<script src="tabs2.js?v=4"></script>
 <?php endif; ?>
 </body>
 </html>

@@ -26,7 +26,9 @@ const DISPLAY_CAT_COLORS = {"Wines":"#A78BFA","Spirits":"#F5B544","Cocktails":"#
 const CAT_SEQUENCE = ["Wines","Spirits","Cocktails","Food","Cigars","Spirits BTG","Wine BTG","Other"];
 
 let D = {}, O = [], SS = [], DLV = [], LINES = null;
-let state = { scope:"Today", channels:new Set(), allChannels:[],
+// Default scope = MTD (not Today): the hosted copy reads a periodic snapshot,
+// so "Today" can legitimately be empty between syncs. MTD always has data.
+let state = { scope:"MTD", channels:new Set(), allChannels:[],
               years:new Set(), allYears:[], custom:[null,null], tab:"brief" };
 
 /* ================= time & format helpers ================= */
@@ -285,14 +287,9 @@ function buildFilters(){
     if (state.channels.has(c)) state.channels.delete(c); else state.channels.add(c);
     if (!state.channels.size) state.allChannels.forEach(x=>state.channels.add(x));
     buildFilters(); render(); });
-  const yp = document.getElementById("yearPills");
-  yp.innerHTML = state.allYears.map(y=>
-    `<button class="pillbtn ${state.years.has(y)?"on":""}" data-y="${y}">${y}</button>`).join("");
-  yp.querySelectorAll(".pillbtn").forEach(b=>b.onclick=()=>{
-    const y=+b.dataset.y;
-    if (state.years.has(y)) state.years.delete(y); else state.years.add(y);
-    if (!state.years.size) state.years.add(todayLocal().getUTCFullYear());
-    buildFilters(); render(); });
+  // Years selector removed from the sidebar per request. state.years stays
+  // pinned to all available years so the year-over-year charts still render
+  // every year that has data.
   document.getElementById("customDates").classList.toggle("show", state.scope==="Custom");
   document.getElementById("dApply").onclick=()=>{
     state.custom=[document.getElementById("dFrom").value||null,

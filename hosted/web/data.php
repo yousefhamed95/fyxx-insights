@@ -2,6 +2,10 @@
 // Auth-gated data endpoint: serves the exporter's JSON files only to a
 // logged-in session. Direct HTTP access to data/*.json is blocked by
 // data/.htaccess — this proxy is the only way in.
+session_set_cookie_params([
+    'lifetime' => 0, 'path' => '/', 'secure' => true,
+    'httponly' => true, 'samesite' => 'None',
+]);
 session_start();
 if (!isset($_SESSION['fyxx_auth']) || $_SESSION['fyxx_auth'] !== 1) {
     http_response_code(401);
