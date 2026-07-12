@@ -218,7 +218,7 @@ async function loadAll(){
   state.years = new Set(state.allYears);
 
   document.getElementById("lastupd").innerHTML =
-    "Data synced<br><b style='color:#A1A1AA'>" + esc(D.meta.generated_at) + "</b><br>Asia/Amman";
+    "Synced <b style='color:#A1A1AA'>" + esc(D.meta.generated_at) + "</b> · Amman";
   document.getElementById("footer").innerHTML =
     `Fyxx Executive Insights · read-only · Odoo · data synced ${esc(D.meta.generated_at)} (Amman) · auto-refresh every 30 min`;
   const dt = todayLocal();

@@ -35,7 +35,17 @@ html, body {
   text-transform: uppercase; letter-spacing: .10em; margin: 22px 0 8px; }
 .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px;
   color: var(--muted); font-size: 11px; padding-top: 30px; }
-.main { flex: 1; min-width: 0; padding: 20px 28px 60px; max-width: 1480px; }
+.main { flex: 1; min-width: 0; padding: 20px 28px 60px; max-width: 1480px; margin: 0 auto; }
+
+/* top bar (replaces the old left sidebar) */
+.topbar { display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.brand-head { display: flex; align-items: baseline; gap: 10px; }
+.brand-name { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+.brand-sub { color: var(--neon); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .18em; text-transform: uppercase; }
+.topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sync-note { color: var(--muted); font-size: 11px; }
 @media (max-width: 980px) {
   .layout { flex-direction: column; }
   .sidebar { width: 100%; flex: none; flex-direction: row; flex-wrap: wrap;

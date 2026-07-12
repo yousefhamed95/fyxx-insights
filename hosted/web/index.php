@@ -59,8 +59,8 @@ if ($authed) {
 <title>Fyxx Executive Insights</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="streamlit-port.css?v=4">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="streamlit-port.css?v=5">
+<link rel="stylesheet" href="style.css?v=5">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
 <body>
@@ -77,22 +77,19 @@ if ($authed) {
 <?php else: ?>
 <div id="loading"><div class="spinner"></div><div class="msg">Loading multi-year sales history…</div></div>
 
-<div class="viewers-badge"><span class="v-dot"></span><b><?php echo (int)$viewers; ?></b>
-<span class="v-label">live viewer<?php echo $viewers === 1 ? '' : 's'; ?></span></div>
-
 <div class="layout">
-  <aside class="sidebar">
-    <div class="fyxx-logo"><img src="fyxx-logo.png" alt="Fyxx"
-         onerror="this.outerHTML='&lt;div class=logo-fallback&gt;FYXX&lt;/div&gt;'"></div>
-    <p class="brand-tag">Executive Insights</p>
-    <div class="side-foot">
-      <div id="lastupd">–</div>
-      <button class="btn" onclick="location.reload()">↻ Refresh now</button>
-      <a class="btn btn-danger" href="./?logout=1">Logout</a>
-    </div>
-  </aside>
-
   <main class="main">
+    <div class="topbar">
+      <div class="brand-head">
+        <span class="brand-name">Fyxx</span>
+        <span class="brand-sub">Executive Insights</span>
+      </div>
+      <div class="topbar-right">
+        <span id="lastupd" class="sync-note">–</span>
+        <button class="btn" onclick="location.reload()">↻ Refresh</button>
+        <a class="btn btn-danger" href="./?logout=1">Logout</a>
+      </div>
+    </div>
     <div id="tickerSlot"></div>
 
     <div class="flabel" style="margin-top:2px">Period</div>
@@ -134,8 +131,8 @@ if ($authed) {
   </main>
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<script src="app.js?v=4"></script>
-<script src="tabs2.js?v=4"></script>
+<script src="app.js?v=5"></script>
+<script src="tabs2.js?v=5"></script>
 <?php endif; ?>
 </body>
 </html>
