@@ -111,13 +111,11 @@ function sparklineSvg(values, color){
     `<path d='${line}' stroke='${color}' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/>`+
     `<circle cx='${lx.toFixed(1)}' cy='${ly.toFixed(1)}' r='2.2' fill='${color}'/></svg>`;
 }
-function kpiCard(label, value, sub, foot, spark, sparkColor){
+function kpiCard(label, value, sub, foot){
+  // Sparkline line-charts removed per request; extra args are ignored.
   const fh = foot ? `<div class='kpi-foot'>${foot}</div>` : "";
-  let sh = "";
-  if (spark){ const svg = sparklineSvg(spark, sparkColor);
-    if (svg) sh = `<div class='kpi-spark-row'>${svg}</div>`; }
   return `<div class='kpi'><div class='kpi-label'>${label}</div>`+
-    `<div class='kpi-value'>${value}</div><div class='kpi-sub'>${sub||""}</div>${sh}${fh}</div>`;
+    `<div class='kpi-value'>${value}</div><div class='kpi-sub'>${sub||""}</div>${fh}</div>`;
 }
 function renderLeaderboard(rows, maxRows, color){
   maxRows = maxRows||10; color = color||"#19E3B6";
