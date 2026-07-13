@@ -1,14 +1,13 @@
 name: Fyxx Host Data Sync
 
-# Refreshes the hosted dashboard's data at umg.jo/dashboard/fyxx/ by
-# running the Odoo -> JSON exporter and uploading via FTP.
-# Multiple cron times because GitHub cron on personal repos is
-# best-effort; each run is idempotent (full re-export + overwrite).
-# Schedule disabled 2026-07-08 — host migration on hold per user request,
-# and the FTP secrets were never added, so every scheduled run failed and
-# spammed failure-notification emails. Re-enable the cron block when the
-# migration resumes (and FTP_HOST / FTP_USER / FTP_PASSWORD secrets exist).
+# Refreshes the hosted dashboard's SNAPSHOT (history + lines + P&L +
+# delivery) at umg.jo/dashboard/fyxx/ by running the Odoo -> JSON exporter
+# and uploading via FTP. Runs every 3 hours to keep past days complete;
+# TODAY is already live via live.php on the host, so this cron only needs
+# to complete recent history, not provide real-time.
 on:
+  schedule:
+    - cron: "20 */3 * * *"   # every 3 hours (offset :20 to dodge top-of-hour congestion)
   workflow_dispatch:
 
 concurrency:
