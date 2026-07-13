@@ -233,7 +233,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   .fleet-inputs { grid-template-columns: 1fr; }
 }
 
-/* very small phones: one KPI per row */
+/* keep two KPI cards per row even on the narrowest phones */
 @media (max-width: 430px) {
-  .kpi-grid { grid-template-columns: 1fr !important; }
+  .kpi-grid { grid-template-columns: 1fr 1fr !important; }
+  .kpi { padding: 11px 12px; }
+  .kpi-value { font-size: 17px; }
 }
