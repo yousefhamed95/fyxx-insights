@@ -5,9 +5,13 @@ name: Fyxx Host Data Sync
 # and uploading via FTP. Runs every 3 hours to keep past days complete;
 # TODAY is already live via live.php on the host, so this cron only needs
 # to complete recent history, not provide real-time.
+# NOTE: schedule stays OFF until the FTP_HOST / FTP_USER / FTP_PASSWORD
+# secrets are added in the repo (Settings > Secrets > Actions), otherwise
+# every run fails and sends failure emails. TODAY is already real-time via
+# live.php on the host, so this snapshot refresh is only needed to complete
+# past days — run it manually (Actions > Run workflow) or flip the cron on
+# once the FTP secrets exist.
 on:
-  schedule:
-    - cron: "20 */3 * * *"   # every 3 hours (offset :20 to dodge top-of-hour congestion)
   workflow_dispatch:
 
 concurrency:
