@@ -175,6 +175,42 @@ function baseLayout(h, legend, extra){
 function plot(el, traces, layout){ const n=document.getElementById(el);
   if (n) Plotly.newPlot(n, traces, layout, PCONF); }
 
+/* ================= live tail (today's orders straight from Odoo) ========= */
+async function fetchLive(){
+  try {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 12000);
+    const live = await fetch("live.php?_=" + Date.now(), { signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    clearTimeout(to);
+    return live;
+  } catch (e) { return null; }
+}
+function applyLive(live){
+  if (!(live && !live.error && Array.isArray(live.ts) && live.today_midnight_ts)) return false;
+  const cutoff = live.today_midnight_ts;
+  O = O.filter(r => r.ts < cutoff);          // drop snapshot's stale "today"
+  for (let i = 0; i < live.ts.length; i++) {
+    const ts = live.ts[i], l = local(ts), h = l.getUTCHours();
+    O.push({ ts, dk:dayKey(ts), mk:dayKey(ts).slice(0,7), y:l.getUTCFullYear(),
+      m:l.getUTCMonth()+1, h, dow:(l.getUTCDay()+6)%7, shift:shiftOf(h),
+      ch:live.channels[live.ch[i]], cu:live.customers[live.cu[i]],
+      sp:live.salespeople[live.sp[i]], amt:live.amt[i], vat:live.vat[i],
+      mg:live.mg[i], src:live.src[i], nm:live.nm?live.nm[i]:"",
+      oid:live.oid?live.oid[i]:0, st:live.states?live.states[live.st[i]]:"sale" });
+  }
+  O.sort((a,b)=>a.ts-b.ts);
+  D.meta.live = true; D.meta.live_now = live.now; D.meta.live_count = live.count;
+  return true;
+}
+function updateSyncLabel(){
+  const el = document.getElementById("lastupd");
+  if (!el) return;
+  el.innerHTML = (D.meta && D.meta.live)
+    ? "<b style='color:#19E3B6'>● Live</b> · today from Odoo"
+    : "Synced <b style='color:#A1A1AA'>" + esc((D.meta && D.meta.generated_at) || "") + "</b>";
+}
+
 /* ================= data load ================= */
 async function loadAll(){
   const names = ["meta","orders","sostates","delivery","lines","pnl"];
@@ -192,6 +228,9 @@ async function loadAll(){
       mg:od.mg[i], src:od.src[i], nm:od.nm?od.nm[i]:"",
       oid:od.oid?od.oid[i]:0, st:od.states?od.states[od.st[i]]:"sale" };
   });
+
+  applyLive(await fetchLive());   // overlay today's orders live from Odoo
+
   SS = D.sostates.ts.map((ts,i)=>({ ts, dk:dayKey(ts),
     ch:D.sostates.channels[D.sostates.ch[i]], st:D.sostates.st[i] }));
   DLV = D.delivery.ots.map((ots,i)=>{
@@ -215,8 +254,7 @@ async function loadAll(){
   state.allYears = [cy-2, cy-1, cy];
   state.years = new Set(state.allYears);
 
-  document.getElementById("lastupd").innerHTML =
-    "Synced <b style='color:#A1A1AA'>" + esc(D.meta.generated_at) + "</b> · Amman";
+  updateSyncLabel();
   document.getElementById("footer").innerHTML =
     `Fyxx Executive Insights · read-only · Odoo · data synced ${esc(D.meta.generated_at)} (Amman) · auto-refresh every 30 min`;
   const dt = todayLocal();
@@ -1009,4 +1047,16 @@ function render(){
     return;
   }
   document.getElementById("loading").style.display = "none";
+
+  // Keep it live: re-pull today's orders from Odoo every 60s and refresh the
+  // headline KPIs + ticker in place (no full-tab redraw, so no scroll jump).
+  setInterval(async () => {
+    if (applyLive(await fetchLive())) {
+      const w = scopeWindow();
+      const ctx = renderKPIs(w);
+      buildTicker(ctx.cur, ctx.prv, w.label);
+      buildScopeStrip(w);
+      updateSyncLabel();
+    }
+  }, 60000);
 })();
