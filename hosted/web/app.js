@@ -178,17 +178,20 @@ function plot(el, traces, layout){ const n=document.getElementById(el);
 /* ================= live tail (today's orders straight from Odoo) ========= */
 async function fetchLive(){
   try {
+    // pass the snapshot's day so live.php covers every day the snapshot is
+    // missing (self-healing — no gap even if the snapshot is stale)
+    const since = (D.meta && D.meta.generated_at) ? D.meta.generated_at.slice(0,10) : "";
     const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 12000);
-    const live = await fetch("live.php?_=" + Date.now(), { signal: ctrl.signal })
-      .then(r => r.ok ? r.json() : null).catch(() => null);
+    const to = setTimeout(() => ctrl.abort(), 15000);
+    const live = await fetch("live.php?since=" + since + "&_=" + Date.now(),
+      { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null);
     clearTimeout(to);
     return live;
   } catch (e) { return null; }
 }
 function applyLive(live){
-  if (!(live && !live.error && Array.isArray(live.ts) && live.today_midnight_ts)) return false;
-  const cutoff = live.today_midnight_ts;
+  const cutoff = live && (live.window_start_ts || live.today_midnight_ts);
+  if (!(live && !live.error && Array.isArray(live.ts) && cutoff)) return false;
   O = O.filter(r => r.ts < cutoff);          // drop snapshot's stale "today"
   for (let i = 0; i < live.ts.length; i++) {
     const ts = live.ts[i], l = local(ts), h = l.getUTCHours();

@@ -79,10 +79,19 @@ if (!is_int($uid)) {
 $tz = new DateTimeZone('Asia/Amman');
 $utc = new DateTimeZone('UTC');
 $now = new DateTime('now', $tz);
-$start = (clone $now)->setTime(0, 0, 0);
+// Window start = the snapshot's day (passed as ?since=YYYY-MM-DD) so the live
+// tail auto-covers every recent day the snapshot is missing — no gaps even if
+// the snapshot is stale. Falls back to today; capped to 30 days for load.
+$since = isset($_GET['since']) ? preg_replace('/[^0-9\-]/', '', $_GET['since']) : '';
+$start = DateTime::createFromFormat('Y-m-d', $since, $tz);
+if (!$start) { $start = clone $now; }
+$start->setTime(0, 0, 0);
+$min = (clone $now)->modify('-30 days')->setTime(0, 0, 0);
+if ($start < $min) { $start = $min; }
+if ($start > $now) { $start = (clone $now)->setTime(0, 0, 0); }
 $start_utc = (clone $start)->setTimezone($utc)->format('Y-m-d H:i:s');
 $end_utc   = (clone $now)->setTimezone($utc)->format('Y-m-d H:i:s');
-$today_midnight_ts = $start->getTimestamp();
+$window_start_ts = $start->getTimestamp();
 
 /* ---- business rules (mirror app.py / exporter) ---- */
 function resolve_channel_so($sp, $co) {
@@ -188,7 +197,8 @@ echo json_encode([
     'nm' => $nm, 'oid' => $oid, 'st' => $st,
     'channels' => $ch_list, 'customers' => $cu_list,
     'salespeople' => $sp_list, 'states' => $st_list,
-    'today_midnight_ts' => $today_midnight_ts,
+    'window_start_ts' => $window_start_ts,
+    'today_midnight_ts' => $window_start_ts,   // alias for older front-ends
     'now' => $now->format('Y-m-d H:i:s'),
     'count' => count($ts),
 ]);
