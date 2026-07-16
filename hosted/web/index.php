@@ -34,21 +34,9 @@ if (isset($_POST['pw'])) {
 
 $authed = isset($_SESSION['fyxx_auth']) && $_SESSION['fyxx_auth'] === 1;
 
-// --- lightweight live-viewer counter (files touched in last 90s) ---
-$viewers = 1;
-if ($authed) {
-    $vdir = sys_get_temp_dir() . '/fyxx_viewers';
-    if (!is_dir($vdir)) { @mkdir($vdir, 0700); }
-    @touch($vdir . '/' . session_id());
-    $viewers = 0;
-    foreach ((array)@scandir($vdir) as $f) {
-        if ($f === '.' || $f === '..') continue;
-        $p = $vdir . '/' . $f;
-        if (@filemtime($p) >= time() - 90) { $viewers++; }
-        elseif (@filemtime($p) < time() - 3600) { @unlink($p); }
-    }
-    if ($viewers < 1) { $viewers = 1; }
-}
+// Host-side lazy snapshot refresh: if the snapshot is stale, the host
+// regenerates it in the background (no GitHub, no cron). Non-blocking.
+if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -59,8 +47,8 @@ if ($authed) {
 <title>Fyxx Executive Insights</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="streamlit-port.css?v=10">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="streamlit-port.css?v=11">
+<link rel="stylesheet" href="style.css?v=11">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
 <body>
@@ -133,8 +121,8 @@ if ($authed) {
   </main>
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<script src="app.js?v=10"></script>
-<script src="tabs2.js?v=10"></script>
+<script src="app.js?v=11"></script>
+<script src="tabs2.js?v=11"></script>
 <?php endif; ?>
 </body>
 </html>

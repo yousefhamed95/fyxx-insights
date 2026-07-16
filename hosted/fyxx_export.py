@@ -142,9 +142,20 @@ def _load_env_file(path):
 
 _FILE_ENV = _load_env_file(Path.home() / ".odoo-creds.env")
 
+# Optional JSON creds file — used when running on the host (no env vars and no
+# ~/.odoo-creds.env there). Path passed via ODOO_CREDS_FILE.
+_JSON_CREDS = {}
+_cf = os.environ.get("ODOO_CREDS_FILE")
+if _cf:
+    try:
+        _JSON_CREDS = json.loads(Path(_cf).read_text(encoding="utf-8"))
+    except Exception:
+        _JSON_CREDS = {}
+
 
 def env(name, default=None, required=True):
-    v = os.environ.get(name) or _FILE_ENV.get(name) or default
+    v = (os.environ.get(name) or _FILE_ENV.get(name)
+         or _JSON_CREDS.get(name) or default)
     if required and not v:
         sys.stderr.write(f"FATAL: env var {name} not set\n")
         sys.exit(2)
@@ -689,18 +700,25 @@ def upload(files_written):
 
 def main():
     no_upload = "--no-upload" in sys.argv
-    outdir = Path(__file__).parent / "out"
-    outdir.mkdir(exist_ok=True)
+    # LOCAL_OUT_DIR = run in place on the host: write JSON straight into the
+    # dashboard's data dir and skip FTP entirely.
+    local_dir = os.environ.get("LOCAL_OUT_DIR")
+    outdir = Path(local_dir) if local_dir else (Path(__file__).parent / "out")
+    outdir.mkdir(parents=True, exist_ok=True)
     files = build_files()
     written = []
     for name, obj in files.items():
+        # Write to a temp file then atomically replace, so a reader never sees
+        # a half-written file even while this regenerates live on the host.
         p = outdir / name
-        with open(p, "w", encoding="utf-8") as fh:
+        tmp = outdir / (name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(obj, fh, separators=(",", ":"), ensure_ascii=False)
+        os.replace(str(tmp), str(p))
         sz = p.stat().st_size
         print(f"wrote {name}  {sz/1024:.0f} KB")
         written.append(str(p))
-    if not no_upload:
+    if not no_upload and not local_dir:
         upload(written)
     print("DONE.")
 
