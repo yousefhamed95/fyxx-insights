@@ -102,6 +102,85 @@ def resolve_channel_so(sp, co):
     return "Retail"
 
 
+def _is_retail_at_green_room(category_path):
+    """Same rule as the dashboard: a product sold at the Dine-In (TGR)
+    register is RETAIL if it's a take-home bottle / cigar; it stays TGR if
+    it's consumed on-premise (food, cocktails, by-the-glass, dine-in drinks)."""
+    if not category_path:
+        return False
+    p = " " + category_path.lower() + " "
+    if "(dine-in)" in p or "(di)" in p:
+        return False
+    if "btg" in p:
+        return False
+    if "/ food /" in p or p.rstrip().endswith("/ food"):
+        return False
+    if "/ drinks /" in p:
+        return False
+    if "0% beverage" in p:
+        return False
+    if "/ cocktails" in p:
+        return False
+    if "/ alcohol" in p or "/ tobacco" in p or "cigar" in p:
+        return True
+    return False
+
+
+def _green_room_split(models, uid, tgr_orders):
+    """Given {order_id: (net, vat)} for TGR POS orders, return
+    (retail_net, retail_vat, retail_orders, tgr_net, tgr_vat, tgr_orders)
+    by reading the order lines and classifying each product — exactly as the
+    dashboard's _split_green_room_to_retail does."""
+    empty = (0.0, 0.0, 0, 0.0, 0.0, 0)
+    if not tgr_orders:
+        return empty
+    ids = list(tgr_orders.keys())
+    lines = []
+    for i in range(0, len(ids), 2000):
+        try:
+            lines += kw(models, uid, "pos.order.line", "search_read",
+                        [[["order_id", "in", ids[i:i + 2000]]]],
+                        {"fields": ["order_id", "product_id", "price_subtotal"],
+                         "limit": 500000})
+        except Exception:
+            pass
+    if not lines:
+        return empty
+    pids = sorted({l["product_id"][0] for l in lines if l.get("product_id")})
+    cats = {}
+    for i in range(0, len(pids), 500):
+        try:
+            for r in kw(models, uid, "product.product", "read",
+                        [pids[i:i + 500]], {"fields": ["id", "categ_id"]}):
+                cats[r["id"]] = (r["categ_id"][1] if r.get("categ_id") else "") or ""
+        except Exception:
+            pass
+
+    per_order = defaultdict(lambda: {"retail": 0.0, "dine": 0.0})
+    for l in lines:
+        if not l.get("order_id") or not l.get("product_id"):
+            continue
+        net = float(l.get("price_subtotal") or 0)
+        bucket = ("retail" if _is_retail_at_green_room(cats.get(l["product_id"][0], ""))
+                  else "dine")
+        per_order[l["order_id"][0]][bucket] += net
+
+    r_net = r_vat = t_net = t_vat = 0.0
+    r_n = t_n = 0
+    for oid, (onet, ovat) in tgr_orders.items():
+        s = per_order.get(oid)
+        total = (s["retail"] + s["dine"]) if s else 0.0
+        if not s or total <= 0:
+            # no usable line data — leave the whole order on TGR
+            t_net += onet; t_vat += ovat; t_n += 1
+            continue
+        if s["retail"] > 0:
+            r_net += s["retail"]; r_vat += ovat * (s["retail"] / total); r_n += 1
+        if s["dine"] > 0:
+            t_net += s["dine"]; t_vat += ovat * (s["dine"] / total); t_n += 1
+    return r_net, r_vat, r_n, t_net, t_vat, t_n
+
+
 def business_window(target_date):
     """00:00 target_date -> 03:00 the next morning (Amman)."""
     start = datetime.combine(target_date, datetime.min.time(), TZ)
@@ -152,6 +231,7 @@ def sales_for_day(target_date):
         add(channel, float(o.get("amount_untaxed") or 0),
             float(o.get("amount_tax") or 0), o["date_order"])
 
+    tgr_orders = {}          # order_id -> (net, vat) for the Green Room split
     for o in poss:
         cust = o["partner_id"][1] if o.get("partner_id") else "Walk-in"
         if _is_internal(cust):
@@ -160,7 +240,31 @@ def sales_for_day(target_date):
         channel = _df_override(cust) or POS_CONFIG_CHANNEL_MAP.get(
             cid, o["config_id"][1] if o.get("config_id") else "POS")
         net = float(o.get("amount_total") or 0) - float(o.get("amount_tax") or 0)
-        add(channel, net, float(o.get("amount_tax") or 0), o["date_order"])
+        vat = float(o.get("amount_tax") or 0)
+        if channel == "TGR":
+            # held back — split into Retail (bottles/cigars) + TGR below
+            tgr_orders[o["id"]] = (net, vat)
+            dtl = datetime.strptime(o["date_order"], "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone.utc).astimezone(TZ)
+            if dtl.date() != target_date:
+                late["orders"] += 1
+                late["net"] += net
+            continue
+        add(channel, net, vat, o["date_order"])
+
+    # Green Room split: take-home bottles/cigars sold at the Dine-In register
+    # are reported as Retail, exactly like the dashboard does.
+    if tgr_orders:
+        r_net, r_vat, r_n, t_net, t_vat, t_n = _green_room_split(
+            models, uid, tgr_orders)
+        if r_n or r_net:
+            ch["Retail"]["orders"] += r_n
+            ch["Retail"]["net"] += r_net
+            ch["Retail"]["vat"] += r_vat
+        if t_n or t_net:
+            ch["TGR"]["orders"] += t_n
+            ch["TGR"]["net"] += t_net
+            ch["TGR"]["vat"] += t_vat
 
     keys = ([k for k in CHANNEL_ORDER if k in ch]
             + sorted(k for k in ch if k not in CHANNEL_ORDER))
