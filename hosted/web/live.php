@@ -115,6 +115,22 @@ function df_override($name) {
 function to_ts($s) {  // Odoo UTC datetime string -> epoch
     return strtotime($s . ' UTC');
 }
+function is_retail_at_green_room($path) {
+    // Same rule as the dashboard/exporter: a product sold at the Dine-In
+    // register is RETAIL if it's a take-home bottle/cigar; it stays TGR if
+    // consumed on-premise (food, cocktails, by-the-glass, dine-in drinks).
+    if (!$path) return false;
+    $p = ' ' . strtolower($path) . ' ';
+    if (strpos($p, '(dine-in)') !== false || strpos($p, '(di)') !== false) return false;
+    if (strpos($p, 'btg') !== false) return false;
+    if (strpos($p, '/ food /') !== false || substr(rtrim($p), -6) === '/ food') return false;
+    if (strpos($p, '/ drinks /') !== false) return false;
+    if (strpos($p, '0% beverage') !== false) return false;
+    if (strpos($p, '/ cocktails') !== false) return false;
+    if (strpos($p, '/ alcohol') !== false || strpos($p, '/ tobacco') !== false
+        || strpos($p, 'cigar') !== false) return true;
+    return false;
+}
 
 /* ---- fetch today's confirmed sale.order + pos.order ---- */
 $sos = odoo_kw($URL, $DB, $uid, $KEY, 'sale.order', 'search_read',
@@ -168,6 +184,10 @@ foreach ($sos as $o) {
     $oid[] = $o['id'];
     $st[]  = intern($st_list, $st_ix, 'sale');
 }
+// First pass: keep POS orders, and note which ones are TGR (Dine-In) so their
+// take-home bottle/cigar lines can be split out to Retail below.
+$pos_keep = [];
+$tgr_ids = [];
 foreach ($poss as $o) {
     $cid = is_array($o['config_id']) ? $o['config_id'][0] : null;
     $chan = isset($POS_MAP[$cid]) ? $POS_MAP[$cid]
@@ -176,19 +196,92 @@ foreach ($poss as $o) {
     if (is_excluded($cust)) continue;
     $ov = df_override($cust);
     if ($ov !== null) $chan = $ov;
+    $o['_chan'] = $chan;
+    $o['_cust'] = $cust;
+    $pos_keep[] = $o;
+    if ($chan === 'TGR') $tgr_ids[] = $o['id'];
+}
+
+// Green Room split: read the lines of the TGR orders and classify each product.
+$gr_split = [];   // order_id => ['retail' => net, 'dine' => net]
+if ($tgr_ids) {
+    $lines = odoo_kw($URL, $DB, $uid, $KEY, 'pos.order.line', 'search_read',
+        [[['order_id', 'in', array_values($tgr_ids)]]],
+        ['fields' => ['order_id', 'product_id', 'price_subtotal'], 'limit' => 100000]);
+    if (is_array($lines) && !isset($lines['__err'])) {
+        $pids = [];
+        foreach ($lines as $l) {
+            if (!empty($l['product_id']) && is_array($l['product_id']))
+                $pids[$l['product_id'][0]] = true;
+        }
+        $cats = [];
+        $pid_list = array_keys($pids);
+        for ($i = 0; $i < count($pid_list); $i += 500) {
+            $chunk = array_slice($pid_list, $i, 500);
+            $prods = odoo_kw($URL, $DB, $uid, $KEY, 'product.product', 'read',
+                [$chunk], ['fields' => ['id', 'categ_id']]);
+            if (is_array($prods) && !isset($prods['__err'])) {
+                foreach ($prods as $p) {
+                    $cats[$p['id']] = (!empty($p['categ_id']) && is_array($p['categ_id']))
+                        ? $p['categ_id'][1] : '';
+                }
+            }
+        }
+        foreach ($lines as $l) {
+            if (empty($l['order_id']) || empty($l['product_id'])) continue;
+            $o_id = $l['order_id'][0];
+            $p_id = $l['product_id'][0];
+            $netl = floatval($l['price_subtotal']);
+            if (!isset($gr_split[$o_id])) $gr_split[$o_id] = ['retail' => 0.0, 'dine' => 0.0];
+            $bucket = is_retail_at_green_room(isset($cats[$p_id]) ? $cats[$p_id] : '')
+                    ? 'retail' : 'dine';
+            $gr_split[$o_id][$bucket] += $netl;
+        }
+    }
+}
+
+// Emit POS rows (a split TGR order becomes one Retail row + one TGR row).
+foreach ($pos_keep as $o) {
+    $chan  = $o['_chan'];
+    $cust  = $o['_cust'];
     $sales = is_array($o['user_id']) ? $o['user_id'][1] : '—';
-    $net = floatval($o['amount_total']) - floatval($o['amount_tax']);
-    $ts[]  = to_ts($o['date_order']);
-    $ch[]  = intern($ch_list, $ch_ix, $chan);
-    $cu[]  = intern($cu_list, $cu_ix, $cust);
-    $sp[]  = intern($sp_list, $sp_ix, $sales);
-    $amt[] = round($net, 2);
-    $vat[] = round(floatval($o['amount_tax']), 2);
-    $mg[]  = round(floatval($o['margin']), 2);
-    $src[] = 1;
-    $nm[]  = $o['name'];
-    $oid[] = $o['id'];
-    $st[]  = intern($st_list, $st_ix, 'paid');
+    $net   = floatval($o['amount_total']) - floatval($o['amount_tax']);
+    $ovat  = floatval($o['amount_tax']);
+    $omg   = floatval($o['margin']);
+    $tstamp = to_ts($o['date_order']);
+
+    $emit = function ($channel, $n, $v, $g) use (
+        &$ts, &$ch, &$cu, &$sp, &$amt, &$vat, &$mg, &$src, &$nm, &$oid, &$st,
+        &$ch_list, &$ch_ix, &$cu_list, &$cu_ix, &$sp_list, &$sp_ix, &$st_list, &$st_ix,
+        $cust, $sales, $tstamp, $o
+    ) {
+        $ts[]  = $tstamp;
+        $ch[]  = intern($ch_list, $ch_ix, $channel);
+        $cu[]  = intern($cu_list, $cu_ix, $cust);
+        $sp[]  = intern($sp_list, $sp_ix, $sales);
+        $amt[] = round($n, 2);
+        $vat[] = round($v, 2);
+        $mg[]  = round($g, 2);
+        $src[] = 1;
+        $nm[]  = $o['name'];
+        $oid[] = $o['id'];
+        $st[]  = intern($st_list, $st_ix, 'paid');
+    };
+
+    $s = ($chan === 'TGR' && isset($gr_split[$o['id']])) ? $gr_split[$o['id']] : null;
+    $tot = $s ? ($s['retail'] + $s['dine']) : 0;
+    if (!$s || $tot <= 0) {
+        $emit($chan, $net, $ovat, $omg);
+        continue;
+    }
+    if ($s['retail'] > 0) {
+        $r = $s['retail'] / $tot;
+        $emit('Retail', $s['retail'], $ovat * $r, $omg * $r);
+    }
+    if ($s['dine'] > 0) {
+        $r = $s['dine'] / $tot;
+        $emit('TGR', $s['dine'], $ovat * $r, $omg * $r);
+    }
 }
 
 echo json_encode([
