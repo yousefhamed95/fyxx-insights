@@ -1,0 +1,57 @@
+name: Daily Sales Email
+
+# Sends the previous business day's sales-by-channel summary at 07:00 Amman.
+# Business day = 00:00 -> 03:00 the next morning (27h), so late-night trade
+# is counted on the day it belongs to.
+#
+# 04:00 UTC = 07:00 Asia/Amman (UTC+3 year-round, no DST since 2022).
+# Backup fires because GitHub cron is best-effort; the script's dedup guard
+# means only the first successful scheduled run each morning actually sends.
+on:
+  schedule:
+    - cron: "0 4 * * *"    # 07:00 Amman — primary
+    - cron: "20 4 * * *"   # 07:20 Amman — backup 1
+    - cron: "0 5 * * *"    # 08:00 Amman — backup 2
+    - cron: "0 6 * * *"    # 09:00 Amman — last resort
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Business day to report. Blank = yesterday. Accepts YYYY-MM-DD, 'today', 'yesterday'."
+        required: false
+        default: ""
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send daily sales email
+        env:
+          # used by the dedup guard so backup fires don't double-send
+          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID:     ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_FILE:     daily-sales-email.yml
+          ODOO_URL:      ${{ secrets.ODOO_URL }}
+          ODOO_DB:       ${{ secrets.ODOO_DB }}
+          ODOO_LOGIN:    ${{ secrets.ODOO_LOGIN }}
+          ODOO_API_KEY:  ${{ secrets.ODOO_API_KEY }}
+          SMTP_HOST:     ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:     ${{ secrets.SMTP_PORT }}
+          SMTP_USER:     ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO:      ${{ secrets.EMAIL_TO }}
+          EMAIL_CC:      ${{ secrets.EMAIL_CC }}
+          REPLY_TO:      ${{ secrets.REPLY_TO }}
+          TARGET_DATE:   ${{ inputs.target_date }}
+        run: python scripts/send_daily_sales_email.py
