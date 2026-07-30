@@ -12,51 +12,71 @@ const DUE_HIGH = 2.00;            // beyond 2x cadence it's churn, not "due"
 const CHURN_AT = 2.20;            // 2.2x their normal gap = actively leaving
 const CHURN_MAX_DAYS = 400;       // older than this = gone, not "at risk"
 
-/* ---------------- customer rhythm engine ---------------- */
+/* ---------------- customer rhythm engine ----------------
+   The business is treated as ONE pool: a purchase in any channel counts as
+   engagement, and each customer has a single buying rhythm across E-com,
+   Retail, TGR, B2B and DF. Buying anywhere keeps them "active"; going quiet
+   everywhere is what puts them at risk. Channels are still shown so you know
+   where they shop and how to reach them.                                   */
+function rhythmOf(dayMap, today){
+  const days = Object.keys(dayMap).sort();
+  if (days.length < GROWTH_MIN_VISITS) return null;
+  const gaps = [];
+  for (let i = 1; i < days.length; i++){
+    const g = Math.round((parseDK(days[i]) - parseDK(days[i-1])) / 86400000);
+    if (g > 0) gaps.push(g);
+  }
+  if (gaps.length < 2) return null;
+  const medGap = median(gaps);
+  if (!medGap || medGap > 240) return null;
+  const m = mean(gaps), sd = std(gaps);
+  const reliability = Math.max(0, Math.min(1, 1 - (m ? sd / m : 1)));
+  const last = days[days.length - 1];
+  const daysSince = Math.round((today - parseDK(last)) / 86400000);
+  return {
+    visits: days.length, medGap, reliability, last, daysSince,
+    avgVisit: mean(days.map(d => dayMap[d])),
+    overdue: daysSince / medGap,
+  };
+}
+
 function buildCadence(){
   const df = dfAll().filter(r => r.cu && r.cu !== "Walk-in" && r.cu !== "—");
   const cut365 = dkOf(addDays(todayLocal(), -365));
   const byCust = {};
   df.forEach(r => {
-    const c = byCust[r.cu] || (byCust[r.cu] = { days:{}, total:0, orders:0, ch:{}, last365:0 });
-    c.days[r.dk] = (c.days[r.dk] || 0) + r.amt;   // same-day orders = one visit
+    const c = byCust[r.cu] || (byCust[r.cu] = {
+      all:{}, byCh:{}, rev:{}, total:0, orders:0, last365:0 });
+    c.all[r.dk] = (c.all[r.dk] || 0) + r.amt;              // pooled visits
+    const m = c.byCh[r.ch] || (c.byCh[r.ch] = {});         // per-channel visits
+    m[r.dk] = (m[r.dk] || 0) + r.amt;
+    c.rev[r.ch] = (c.rev[r.ch] || 0) + r.amt;
     c.total += r.amt;
     c.orders++;
-    if (r.dk >= cut365) c.last365 += r.amt;       // real trailing-12-month spend
-    c.ch[r.ch] = (c.ch[r.ch] || 0) + r.amt;
+    if (r.dk >= cut365) c.last365 += r.amt;
   });
+
   const today = todayLocal();
   const out = [];
   Object.keys(byCust).forEach(name => {
     const c = byCust[name];
-    const days = Object.keys(c.days).sort();
-    if (days.length < GROWTH_MIN_VISITS) return;
-    const gaps = [];
-    for (let i = 1; i < days.length; i++){
-      const g = Math.round((parseDK(days[i]) - parseDK(days[i-1])) / 86400000);
-      if (g > 0) gaps.push(g);
-    }
-    if (gaps.length < 2) return;
-    const medGap = median(gaps);
-    if (!medGap || medGap > 240) return;          // no usable rhythm
-    const m = mean(gaps), sd = std(gaps);
-    const cv = m ? sd / m : 1;
-    const reliability = Math.max(0, Math.min(1, 1 - cv));   // 1 = clockwork
-    const last = days[days.length - 1];
-    const daysSince = Math.round((today - parseDK(last)) / 86400000);
-    const values = days.map(d => c.days[d]);
-    const avgVisit = mean(values);
-    const topCh = sortEntries(c.ch)[0];
-    // Value at risk = what they ACTUALLY spent in the last 12 months, never
-    // an annualised peak rate (that wildly overstates it for short-cadence
-    // buyers). Capped by the theoretical run-rate as a sanity bound.
-    const runRate = medGap ? avgVisit * (365 / medGap) : 0;
+    // ONE rhythm per customer, across every channel they buy from.
+    const basis = rhythmOf(c.all, today);
+    if (!basis) return;
+    const ranked = sortEntries(c.rev).map(e => e[0]);   // channels by spend
+    const mainCh = ranked[0] || "—";
+    const totalRev = Object.values(c.rev).reduce((s,v) => s + v, 0) || 1;
+    const share = (c.rev[mainCh] || 0) / totalRev * 100;
+    const runRate = basis.medGap ? basis.avgVisit * (365 / basis.medGap) : 0;
     out.push({
-      name, visits: days.length, orders: c.orders, total: c.total,
-      avgVisit, medGap, reliability, last, daysSince,
-      overdue: medGap ? daysSince / medGap : 0,
+      name, visits: basis.visits, orders: c.orders, total: c.total,
+      avgVisit: basis.avgVisit, medGap: basis.medGap,
+      reliability: basis.reliability, last: basis.last,
+      daysSince: basis.daysSince, overdue: basis.overdue,
       perYear: Math.min(c.last365 || 0, runRate) || (c.last365 || 0),
-      channel: topCh ? topCh[0] : "—",
+      channel: mainCh, share,
+      multi: ranked.length > 1,
+      alsoIn: ranked.slice(1),
     });
   });
   return out;
@@ -70,6 +90,16 @@ function confBar(v){
 }
 function chDot(ch){
   return `<span style="color:${CHANNEL_COLORS[ch] || PAL.muted}">&#9679;</span>`;
+}
+/* Where this customer shops — main channel plus anything else they use.
+   The rhythm itself is pooled across all channels; this is just context
+   for how to reach them and what to offer. */
+function chCell(c){
+  const main = `${chDot(c.channel)} ${esc(c.channel)}`;
+  const pct = `<span style="color:${PAL.muted}"> ${c.share.toFixed(0)}%</span>`;
+  const also = c.alsoIn && c.alsoIn.length
+    ? `<div class="gmix">+ ${c.alsoIn.slice(0,3).map(esc).join(", ")}</div>` : "";
+  return main + pct + also;
 }
 
 /* ---------------- menu engineering ---------------- */
@@ -168,13 +198,13 @@ window.renderGrowth = function(el, w, ctx){
 
     // ---- 1. DUE TO BUY ----
     sec("&#9673;&nbsp; Due to Buy &mdash; today's call list",
-        "Every repeat customer has a personal rhythm. These are at or past their next expected visit, ranked by how reliable their pattern is &times; what they normally spend.", 22)+
+        "Every repeat customer has one buying rhythm across the <b>whole business</b> &mdash; a purchase in any channel counts. These are at or past their next expected purchase, ranked by how reliable their pattern is &times; what they normally spend.", 22)+
     `<div class='card' style='padding:12px' id='gDue'></div>
      <button class='btn' id='gDueCsv' style='margin-top:10px'>&#9678; Download call list (CSV)</button>`+
 
     // ---- 2. CHURN ----
     sec("&#9888;&nbsp; Churn Radar &mdash; losing them right now",
-        "Regulars whose gap has stretched past 2&times; normal. Ranked by the annual revenue walking out the door.", 22)+
+        "Regulars who have gone quiet <b>everywhere</b> &mdash; past 2&times; their normal gap across all channels. Ranked by the revenue they generated in the last 12 months.", 22)+
     `<div class='card' style='padding:12px' id='gChurn'></div>
      <button class='btn' id='gChurnCsv' style='margin-top:10px'>&#9678; Download win-back list (CSV)</button>`+
 
@@ -194,19 +224,19 @@ window.renderGrowth = function(el, w, ctx){
   const dueRows = due.slice(0, 40);
   document.getElementById("gDue").innerHTML = dueRows.length ?
     `<div style='max-height:520px;overflow:auto'><table class='tbl'><thead><tr>
-      <th>#</th><th>Customer</th><th>Buys every</th><th>Last seen</th>
-      <th>Overdue</th><th>Confidence</th><th>Typical basket</th><th>Ch.</th>
+      <th>#</th><th>Customer</th><th>Contact about</th><th>Buys every</th>
+      <th>Last bought</th><th>Overdue</th><th>Confidence</th><th>Typical basket</th>
      </tr></thead><tbody>`+
     dueRows.map((c,i) => {
       const od = Math.round(c.daysSince - c.medGap);
       const odTxt = od > 0 ? `<span style='color:${PAL.amber}'>+${od}d</span>`
                            : `<span style='color:${PAL.muted}'>due now</span>`;
       return `<tr><td>${i+1}</td><td>${ltr(c.name)}</td>
+        <td style='text-align:left'>${chCell(c)}</td>
         <td>${Math.round(c.medGap)} days</td>
         <td>${fmtDay(c.last)} <span style='color:${PAL.muted}'>(${c.daysSince}d)</span></td>
         <td>${odTxt}</td><td>${confBar(c.reliability)}</td>
-        <td><b>${fmtM(c.avgVisit)}</b></td>
-        <td>${chDot(c.channel)} ${esc(c.channel)}</td></tr>`;
+        <td><b>${fmtM(c.avgVisit)}</b></td></tr>`;
     }).join("")+
     `</tbody></table></div>`
     : "<div class='note'>No customers are at their re-order point right now (needs 3+ visits to learn a rhythm).</div>";
@@ -214,36 +244,40 @@ window.renderGrowth = function(el, w, ctx){
   const dueBtn = document.getElementById("gDueCsv");
   if (dueBtn) dueBtn.onclick = () => dlCSV(
     `fyxx-due-to-buy-${dkOf(todayLocal())}.csv`,
-    ["Rank","Customer","Buys every (days)","Last visit","Days since","Days overdue",
-     "Confidence %","Typical basket (JOD)","Visits","Lifetime (JOD)","Main channel"],
+    ["Rank","Customer","Buys every (days)","Last purchase","Days since","Days overdue",
+     "Confidence %","Typical basket (JOD)","Visits","Lifetime (JOD)",
+     "Main channel","Main channel %","Also buys from"],
     due.map((c,i) => [i+1, c.name, Math.round(c.medGap), c.last, c.daysSince,
       Math.round(c.daysSince - c.medGap), Math.round(c.reliability*100),
-      c.avgVisit.toFixed(0), c.visits, c.total.toFixed(0), c.channel]));
+      c.avgVisit.toFixed(0), c.visits, c.total.toFixed(0),
+      c.channel, c.share.toFixed(0), (c.alsoIn || []).join(" / ")]));
 
   /* ---- churn table ---- */
   const chRows = churn.slice(0, 40);
   document.getElementById("gChurn").innerHTML = chRows.length ?
     `<div style='max-height:520px;overflow:auto'><table class='tbl'><thead><tr>
-      <th>#</th><th>Customer</th><th>Was buying every</th><th>Last seen</th>
-      <th>Gap now</th><th>Lifetime</th><th>At risk / yr</th><th>Ch.</th>
+      <th>#</th><th>Customer</th><th>Shops at</th><th>Was buying every</th>
+      <th>Last bought</th><th>Gap now</th><th>Lifetime</th><th>Last 12m at risk</th>
      </tr></thead><tbody>`+
     chRows.map((c,i) => `<tr><td>${i+1}</td><td>${ltr(c.name)}</td>
+      <td style='text-align:left'>${chCell(c)}</td>
       <td>${Math.round(c.medGap)} days</td>
       <td>${fmtDay(c.last)} <span style='color:${PAL.muted}'>(${c.daysSince}d)</span></td>
       <td><span style='color:${PAL.bad}'>${c.overdue.toFixed(1)}&times;</span></td>
       <td>${fmtM(c.total, true)}</td>
-      <td><b style='color:${PAL.bad}'>${fmtM(c.perYear, true)}</b></td>
-      <td>${chDot(c.channel)} ${esc(c.channel)}</td></tr>`).join("")+
+      <td><b style='color:${PAL.bad}'>${fmtM(c.perYear, true)}</b></td></tr>`).join("")+
     `</tbody></table></div>`
     : "<div class='note'>No regulars are currently past 2&times; their normal gap — retention looks healthy.</div>";
 
   const chBtn = document.getElementById("gChurnCsv");
   if (chBtn) chBtn.onclick = () => dlCSV(
     `fyxx-win-back-${dkOf(todayLocal())}.csv`,
-    ["Rank","Customer","Was buying every (days)","Last visit","Days since",
-     "Overdue multiple","Lifetime (JOD)","Annual value at risk (JOD)","Visits","Main channel"],
+    ["Rank","Customer","Was buying every (days)","Last purchase","Days since",
+     "Overdue multiple","Lifetime (JOD)","Last 12m spend at risk (JOD)","Visits",
+     "Main channel","Main channel %","Also buys from"],
     churn.map((c,i) => [i+1, c.name, Math.round(c.medGap), c.last, c.daysSince,
-      c.overdue.toFixed(1), c.total.toFixed(0), c.perYear.toFixed(0), c.visits, c.channel]));
+      c.overdue.toFixed(1), c.total.toFixed(0), c.perYear.toFixed(0), c.visits,
+      c.channel, c.share.toFixed(0), (c.alsoIn || []).join(" / ")]));
 
   /* ---- menu matrix ---- */
   if (!mm){
