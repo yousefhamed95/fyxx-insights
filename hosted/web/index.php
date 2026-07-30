@@ -47,8 +47,8 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <title>Fyxx Executive Insights</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="streamlit-port.css?v=11">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="streamlit-port.css?v=13">
+<link rel="stylesheet" href="style.css?v=13">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
 <body>
@@ -103,6 +103,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 
     <div class="panel" id="p-brief"></div>
     <div class="panel" id="p-exec"></div>
+    <div class="panel" id="p-growth"></div>
     <div class="panel" id="p-shifts"></div>
     <div class="panel" id="p-pace"></div>
     <div class="panel" id="p-profit"></div>
@@ -121,8 +122,9 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
   </main>
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<script src="app.js?v=11"></script>
-<script src="tabs2.js?v=11"></script>
+<script src="app.js?v=13"></script>
+<script src="tabs2.js?v=13"></script>
+<script src="growth.js?v=13"></script>
 <?php endif; ?>
 </body>
 </html>

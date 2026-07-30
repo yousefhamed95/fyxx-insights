@@ -305,7 +305,8 @@ function yearsWithData(df){
 /* ================= UI scaffolding ================= */
 const SCOPES = ["Today","Yesterday","MTD","YTD","Custom"];
 const TABS = [
-  ["brief","◆ Brief"], ["exec","❖ Executive Summary"], ["shifts","◷ Online & Shifts"],
+  ["brief","◆ Brief"], ["exec","❖ Executive Summary"], ["growth","◉ Growth"],
+  ["shifts","◷ Online & Shifts"],
   ["pace","▲ Pacing"], ["profit","◯ Profitability"], ["pnl","Σ P&L"],
   ["sku","❒ Products"], ["loss","※ Loss Orders"], ["alerts","⚑ Alerts"],
   ["trends","⌁ Trends"], ["channels","⌬ Channels"], ["customers","◐ Customers"],
@@ -1027,7 +1028,8 @@ function render(){
   const el = document.getElementById("p-"+state.tab);
   el.classList.add("on");
   const R = {
-    brief:renderBrief, exec:renderExec, shifts:window.renderShifts,
+    brief:renderBrief, exec:renderExec, growth:window.renderGrowth,
+    shifts:window.renderShifts,
     pace:renderPacing, profit:renderProfit, pnl:renderPnl,
     sku:window.renderSku, loss:window.renderLoss, alerts:window.renderAlerts,
     trends:window.renderTrends, channels:window.renderChannels2,
