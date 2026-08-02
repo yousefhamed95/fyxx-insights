@@ -1,24 +1,23 @@
 name: Daily TGR Customer Email
 
-# Tries 4 times each night, 22:00 / 23:00 / 00:00 / 02:00 UTC
-# (= 01:00 / 02:00 / 03:00 / 05:00 Asia/Amman). The script's dedup
-# guard ensures only the FIRST successful fire actually sends an email —
-# later fires query the workflow run history and short-circuit if a
-# scheduled sibling already succeeded in the last 12 hours.
+# Sends at 05:00 Asia/Amman = 02:00 UTC (Jordan is UTC+3 year-round, no DST
+# since 2022). Tries 4 times each morning; the script's dedup guard ensures
+# only the FIRST successful fire actually sends an email — later fires query
+# the workflow run history and short-circuit if a scheduled sibling already
+# succeeded in the last 12 hours.
 #
 # Why 4 fires: GitHub Actions cron on personal repos is best-effort and
 # regularly skips runs or delays them by hours. Four spread-out attempts
-# give >99% probability that at least one fires before the next day.
+# give >99% probability that at least one fires.
 #
 # Scheduled fires always report YESTERDAY's data (trading day fully
 # closed). Manual workflow_dispatch can override via the date input.
-# (Jordan is UTC+3 year-round — no DST since 2022.)
 on:
   schedule:
-    - cron: "0 22 * * *"   # 01:00 Amman, primary
-    - cron: "0 23 * * *"   # 02:00 Amman, backup #1
-    - cron: "0 0 * * *"    # 03:00 Amman, backup #2
-    - cron: "0 2 * * *"    # 05:00 Amman, last resort
+    - cron: "0 2 * * *"    # 05:00 Amman — primary
+    - cron: "20 2 * * *"   # 05:20 Amman — backup #1
+    - cron: "0 3 * * *"    # 06:00 Amman — backup #2
+    - cron: "0 4 * * *"    # 07:00 Amman — last resort
   workflow_dispatch:
     inputs:
       target_date:

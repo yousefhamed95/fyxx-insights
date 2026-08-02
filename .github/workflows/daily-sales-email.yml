@@ -1,18 +1,19 @@
 name: Daily Sales Email
 
-# Sends the previous business day's sales-by-channel summary at 07:00 Amman.
+# Sends the previous business day's sales-by-channel summary at 05:00 Amman.
 # Business day = 00:00 -> 03:00 the next morning (27h), so late-night trade
-# is counted on the day it belongs to.
+# is counted on the day it belongs to. Sending at 05:00 is safely after that
+# 03:00 cut-off, so the day is always complete.
 #
-# 04:00 UTC = 07:00 Asia/Amman (UTC+3 year-round, no DST since 2022).
+# 02:00 UTC = 05:00 Asia/Amman (UTC+3 year-round, no DST since 2022).
 # Backup fires because GitHub cron is best-effort; the script's dedup guard
 # means only the first successful scheduled run each morning actually sends.
 on:
   schedule:
-    - cron: "0 4 * * *"    # 07:00 Amman — primary
-    - cron: "20 4 * * *"   # 07:20 Amman — backup 1
-    - cron: "0 5 * * *"    # 08:00 Amman — backup 2
-    - cron: "0 6 * * *"    # 09:00 Amman — last resort
+    - cron: "0 2 * * *"    # 05:00 Amman — primary
+    - cron: "20 2 * * *"   # 05:20 Amman — backup 1
+    - cron: "0 3 * * *"    # 06:00 Amman — backup 2
+    - cron: "0 4 * * *"    # 07:00 Amman — last resort
   workflow_dispatch:
     inputs:
       target_date:
