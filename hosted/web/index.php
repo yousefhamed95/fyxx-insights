@@ -13,26 +13,46 @@ session_set_cookie_params([
     'samesite' => 'None',
 ]);
 session_start();
+require __DIR__ . '/role_filter.php';
 
-define('FYXX_PASSWORD', '2525');
+// Logins live in auth_config.php on the HOST ONLY — never in git, because
+// this repository is public. Each login has a role; see role_filter.php
+// for what each role may see and auth_config.sample.php for the format.
+$auth_cfg = @include __DIR__ . '/auth_config.php';
+$logins = (is_array($auth_cfg) && !empty($auth_cfg['logins'])) ? $auth_cfg['logins'] : array();
 
 if (isset($_GET['logout'])) {
-    unset($_SESSION['fyxx_auth']);
+    unset($_SESSION['fyxx_auth'], $_SESSION['fyxx_role']);
     header('Location: ./');
     exit;
 }
 
 $err = '';
 if (isset($_POST['pw'])) {
-    if (hash_equals(FYXX_PASSWORD, (string)$_POST['pw'])) {
+    $pw = (string)$_POST['pw'];
+    $login_role = null;
+    foreach ($logins as $l) {
+        if (isset($l['password'], $l['role']) && (string)$l['password'] !== ''
+            && hash_equals((string)$l['password'], $pw)) {
+            $login_role = (string)$l['role'];
+            break;
+        }
+    }
+    if ($login_role !== null) {
+        session_regenerate_id(true);           // fresh session id on login
         $_SESSION['fyxx_auth'] = 1;
+        $_SESSION['fyxx_role'] = $login_role;
         header('Location: ./');
         exit;
     }
-    $err = 'Wrong password — try again.';
+    usleep(1500000);                           // slow down password guessing
+    $err = $logins ? 'Wrong password — try again.'
+                   : 'Login is not configured on this server.';
 }
 
 $authed = isset($_SESSION['fyxx_auth']) && $_SESSION['fyxx_auth'] === 1;
+$role = $authed ? fyxx_role() : '';
+$is_ecom = ($role === 'ecom');
 
 // Host-side lazy snapshot refresh: if the snapshot is stale, the host
 // regenerates it in the background (no GitHub, no cron). Non-blocking.
@@ -47,8 +67,8 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <title>Fyxx Executive Insights</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="streamlit-port.css?v=13">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="streamlit-port.css?v=14">
+<link rel="stylesheet" href="style.css?v=14">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
 <body>
@@ -72,7 +92,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
     <div class="topbar">
       <div class="brand-head">
         <span class="brand-name">Fyxx</span>
-        <span class="brand-sub">Executive Insights</span>
+        <span class="brand-sub"><?php echo $is_ecom ? 'E-commerce' : 'Executive Insights'; ?></span>
       </div>
       <div class="topbar-right">
         <span id="lastupd" class="sync-note">–</span>
@@ -122,9 +142,10 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
   </main>
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<script src="app.js?v=13"></script>
-<script src="tabs2.js?v=13"></script>
-<script src="growth.js?v=13"></script>
+<script>window.FYXX_ROLE = <?php echo json_encode($role); ?>;</script>
+<script src="app.js?v=14"></script>
+<script src="tabs2.js?v=14"></script>
+<script src="growth.js?v=14"></script>
 <?php endif; ?>
 </body>
 </html>

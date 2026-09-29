@@ -304,7 +304,7 @@ function yearsWithData(df){
 
 /* ================= UI scaffolding ================= */
 const SCOPES = ["Today","Yesterday","MTD","YTD","Custom"];
-const TABS = [
+const TABS_ALL = [
   ["brief","◆ Brief"], ["exec","❖ Executive Summary"], ["growth","◉ Growth"],
   ["shifts","◷ Online & Shifts"],
   ["pace","▲ Pacing"], ["profit","◯ Profitability"], ["pnl","Σ P&L"],
@@ -312,6 +312,12 @@ const TABS = [
   ["trends","⌁ Trends"], ["channels","⌬ Channels"], ["customers","◐ Customers"],
   ["cohorts","⟳ Cohorts"], ["compare","⇋ Compare"], ["live","● Live"],
 ];
+// The e-commerce login only receives E-com data (enforced on the server in
+// role_filter.php). The company-wide P&L and the channel-comparison tab
+// don't apply to a single channel, so they're hidden for that login.
+const TABS = (window.FYXX_ROLE === "ecom")
+  ? TABS_ALL.filter(([id]) => !["pnl", "channels"].includes(id))
+  : TABS_ALL;
 function buildFilters(){
   const sp = document.getElementById("scopePills");
   sp.innerHTML = SCOPES.map(s=>`<button class="pillbtn ${s===state.scope?"on":""}" data-s="${s}">${s}</button>`).join("");
@@ -369,7 +375,8 @@ function buildTicker(cur, prv, label){
 }
 function buildScopeStrip(w){
   const nCh = state.channels.size, nAll = state.allChannels.length;
-  const chTxt = nCh<nAll ? `${nCh} of ${nAll} channels` : `all ${nAll} channels`;
+  const chTxt = nAll === 1 ? `${esc(state.allChannels[0])} only`
+    : nCh<nAll ? `${nCh} of ${nAll} channels` : `all ${nAll} channels`;
   const now = new Date(Date.now()+TZ_OFF*1000);
   const hh = String(now.getUTCHours()).padStart(2,"0")+":"+String(now.getUTCMinutes()).padStart(2,"0")+":"+String(now.getUTCSeconds()).padStart(2,"0");
   document.getElementById("scopeStrip").innerHTML =

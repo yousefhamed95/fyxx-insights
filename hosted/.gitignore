@@ -1,2 +1,3 @@
 out/
 web/data/odoo_creds.json
+web/auth_config.php

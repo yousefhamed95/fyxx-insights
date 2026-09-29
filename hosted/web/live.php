@@ -21,6 +21,7 @@ if (!isset($_SESSION['fyxx_auth']) || $_SESSION['fyxx_auth'] !== 1) {
     echo '{"error":"unauthorized"}';
     exit;
 }
+require __DIR__ . '/role_filter.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -284,7 +285,7 @@ foreach ($pos_keep as $o) {
     }
 }
 
-echo json_encode([
+$out = [
     'ts' => $ts, 'ch' => $ch, 'cu' => $cu, 'sp' => $sp,
     'amt' => $amt, 'vat' => $vat, 'mg' => $mg, 'src' => $src,
     'nm' => $nm, 'oid' => $oid, 'st' => $st,
@@ -294,4 +295,11 @@ echo json_encode([
     'today_midnight_ts' => $window_start_ts,   // alias for older front-ends
     'now' => $now->format('Y-m-d H:i:s'),
     'count' => count($ts),
-]);
+];
+// restricted logins (e.g. e-commerce manager) only ever receive their channels
+$role_channels = fyxx_role_channels(fyxx_role());
+if ($role_channels !== null) {
+    $out = fyxx_filter_orders($out, $role_channels);
+}
+ini_set('serialize_precision', '-1');
+echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
