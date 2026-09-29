@@ -1,34 +1,51 @@
 name: Daily TGR Customer Email
 
-# Sends at 05:00 Asia/Amman = 02:00 UTC (Jordan is UTC+3 year-round, no DST
-# since 2022). Tries 4 times each morning; the script's dedup guard ensures
-# only the FIRST successful fire actually sends an email — later fires query
-# the workflow run history and short-circuit if a scheduled sibling already
-# succeeded in the last 12 hours.
+# Delivers yesterday's TGR (Green Room) customer summary at 08:30 Asia/Amman.
 #
-# Why 4 fires: GitHub Actions cron on personal repos is best-effort and
-# regularly skips runs or delays them by hours. Four spread-out attempts
-# give >99% probability that at least one fires.
+# Business day = 03:00 -> 03:00 (cut-off 03:00 every night) — the same
+# window as the Daily Sales email, so the two reports always agree.
 #
-# Scheduled fires always report YESTERDAY's data (trading day fully
-# closed). Manual workflow_dispatch can override via the date input.
+# Timing: GitHub's cron is best-effort and for this repo has been starting
+# runs 5-6.5 hours late. So the workflow is triggered EARLY (22:07-06:07
+# Amman) and a scheduled run holds itself until exactly 08:30 before sending
+# (scripts/daily_email_schedule.py). With triggers two hours apart, any
+# delay from 0 to ~10 hours still lands the email at 08:30.
+#
+# One email per day: runs are serialised by the concurrency group, and the
+# sending run leaves a "sent-tgr-<date>" artifact that later runs check.
+# (The keepalive that stops GitHub disabling schedules lives in the Daily
+# Sales Email workflow — one per repo is enough.)
 on:
   schedule:
-    - cron: "0 2 * * *"    # 05:00 Amman — primary
-    - cron: "20 2 * * *"   # 05:20 Amman — backup #1
-    - cron: "0 3 * * *"    # 06:00 Amman — backup #2
-    - cron: "0 4 * * *"    # 07:00 Amman — last resort
+    - cron: "7 19 * * *"    # 22:07 Amman
+    - cron: "7 21 * * *"    # 00:07 Amman
+    - cron: "7 23 * * *"    # 02:07 Amman
+    - cron: "7 1 * * *"     # 04:07 Amman
+    - cron: "7 3 * * *"     # 06:07 Amman (also the late fallback)
   workflow_dispatch:
     inputs:
       target_date:
-        description: "Date to report on. Blank = today (manual) / yesterday (scheduled). Accepts YYYY-MM-DD, 'today', or 'yesterday'."
+        description: "Date to report on. Blank = today. Accepts YYYY-MM-DD, 'today', or 'yesterday'. Manual runs send immediately."
         required: false
         default: ""
+      dry_run:
+        description: "Build the report and log it, but do not send the email"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: daily-tgr-email
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read       # look up the per-day "sent" marker
 
 jobs:
   send:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 345          # a run may hold up to 5.5h for 08:30
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -41,14 +58,11 @@ jobs:
       - name: Install PDF dependency
         run: pip install --disable-pip-version-check --no-input reportlab==4.2.5
 
-      - name: Send TGR daily email
+      - name: Build and send (scheduled runs hold until 08:30 Amman)
+        id: send
         env:
-          # GitHub auto-injects these — used by the dedup guard so backup
-          # cron fires can detect that an earlier fire already sent.
-          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY:   ${{ github.repository }}
-          GITHUB_RUN_ID:       ${{ github.run_id }}
-          GITHUB_EVENT_NAME:   ${{ github.event_name }}
+          SEND_AT:       "08:30"
+          GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
           ODOO_URL:      ${{ secrets.ODOO_URL }}
           ODOO_DB:       ${{ secrets.ODOO_DB }}
           ODOO_LOGIN:    ${{ secrets.ODOO_LOGIN }}
@@ -61,7 +75,14 @@ jobs:
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
           EMAIL_CC:      ${{ secrets.EMAIL_CC }}
           REPLY_TO:      ${{ secrets.REPLY_TO }}
-          # Scheduled cron defaults to yesterday's data (day just closed).
-          # Manual workflow_dispatch uses whatever the user typed (blank = today).
-          TARGET_DATE: ${{ github.event_name == 'schedule' && 'yesterday' || inputs.target_date }}
+          TARGET_DATE:   ${{ inputs.target_date }}
+          DRY_RUN:       ${{ inputs.dry_run }}
         run: python scripts/send_tgr_daily_email.py
+
+      - name: Record that this day's report went out
+        if: steps.send.outputs.sent == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.send.outputs.marker }}
+          path: sent-marker.txt
+          retention-days: 5

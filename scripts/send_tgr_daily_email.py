@@ -1,9 +1,10 @@
 """Send a daily TGR customer summary email.
 
-Designed to run unattended via GitHub Actions at the end of each Amman day.
-Pulls TGR (POS Dine-In, config_id=3) orders for today (Asia/Amman), groups
-them into named vs walk-in customers, builds an HTML email, and sends via
-SMTP.
+Designed to run unattended via GitHub Actions. Pulls TGR (POS Dine-In,
+config_id=3) orders for one business day — 03:00 -> 03:00 Asia/Amman, the same
+03:00 cut-off as the daily sales report — groups them into named vs walk-in
+customers, builds an HTML email, and sends via SMTP. Scheduled runs deliver
+at SEND_AT (08:30) Amman for the day that just closed.
 
 Read-only against Odoo. No third-party packages — Python stdlib only.
 
@@ -25,6 +26,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from io import BytesIO
 from zoneinfo import ZoneInfo
+
+import daily_email_schedule as sched
 
 
 # -----------------------------------------------------------------------------
@@ -88,8 +91,8 @@ def kw(models, uid, model, method, args, opts=None):
 # -----------------------------------------------------------------------------
 def tgr_stats_for_day(target_date):
     uid, models = odoo_client()
-    start_local = datetime.combine(target_date, datetime.min.time(), TZ)
-    end_local = start_local + timedelta(days=1)
+    # 03:00 -> 03:00: the night shift's after-midnight trade stays on its day
+    start_local, end_local = sched.business_window(target_date)
     start_utc = start_local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     end_utc = end_local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -118,6 +121,8 @@ def tgr_stats_for_day(target_date):
 
     return {
         "date": target_date,
+        "start": start_local,
+        "end": end_local,
         "total_orders": total_orders,
         "walk_in_orders": walk_in_orders,
         "named_orders": named_orders,
@@ -168,10 +173,14 @@ def build_html(s):
                 text-transform:uppercase;margin-bottom:6px">
       Fyxx TGR Daily Summary
     </div>
-    <h1 style="color:#F4F4F5;font-size:22px;font-weight:700;margin:0 0 24px 0;
+    <h1 style="color:#F4F4F5;font-size:22px;font-weight:700;margin:0 0 4px 0;
                letter-spacing:-0.01em">
       Green Room (Dine-In) · {date_label}
     </h1>
+    <div style="color:#71717A;font-size:12px;margin-bottom:24px">
+      Business day · {s['start'].strftime('%d %b %H:%M')} &rarr;
+      {s['end'].strftime('%d %b %H:%M')} · cut-off 03:00
+    </div>
 
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px">
       <div style="flex:1;min-width:160px;background:#15151A;border:1px solid #23232B;
@@ -263,6 +272,8 @@ def build_plain(s):
     lines = [
         f"Fyxx TGR Daily Customer Summary",
         f"Date: {s['date'].strftime('%A, %d %b %Y')}",
+        f"Business day: {s['start'].strftime('%d %b %H:%M')} -> "
+        f"{s['end'].strftime('%d %b %H:%M')} (cut-off 03:00)",
         "",
         f"Total POS orders at TGR:         {s['total_orders']:,}",
         f"  Orders to NAMED customers:     {s['named_orders']:,}",
@@ -330,7 +341,10 @@ def build_pdf(stats) -> bytes:
     elems = []
     elems.append(Paragraph("FYXX TGR DAILY SUMMARY", eyebrow))
     elems.append(Paragraph("Green Room (Dine-In)", title))
-    elems.append(Paragraph(stats["date"].strftime("%A, %d %B %Y"), subtitle))
+    elems.append(Paragraph(
+        stats["date"].strftime("%A, %d %B %Y") +
+        f"  ·  business day {stats['start']:%d %b %H:%M} → "
+        f"{stats['end']:%d %b %H:%M} (cut-off 03:00)", subtitle))
 
     # ---- KPI row ----
     kpi_left = (
@@ -473,62 +487,9 @@ def send_email(stats):
     print(f"Sent to {EMAIL_TO}{cc_label} OK.")
 
 
-def _scheduled_send_already_happened() -> bool:
-    """Return True if another *scheduled* run of this workflow has already
-    finished successfully within the last 12 hours.
-
-    Used to deduplicate when multiple backup cron times all fire on the
-    same Amman-night window — only the first scheduled fire actually
-    sends; later ones short-circuit before composing the email.
-
-    Manual workflow_dispatch runs are never blocked (this function only
-    consults the schedule history when the current event is itself a
-    scheduled fire).
-    """
-    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
-        return False
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    token = os.environ.get("GITHUB_TOKEN")
-    cur_id = os.environ.get("GITHUB_RUN_ID", "")
-    if not (repo and token):
-        return False
-
-    import json
-    import urllib.request
-    url = (f"https://api.github.com/repos/{repo}/actions/workflows/"
-           f"daily-tgr-email.yml/runs?status=success&per_page=10")
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-    except Exception as e:
-        sys.stderr.write(f"WARN: could not query run history for dedupe: {e}\n")
-        return False  # Fail open — prefer a duplicate over a miss
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
-    for r in data.get("workflow_runs", []):
-        if str(r.get("id")) == cur_id:
-            continue
-        if r.get("event") != "schedule":
-            continue  # only previous scheduled fires count
-        try:
-            upd = datetime.strptime(
-                r.get("updated_at", ""), "%Y-%m-%dT%H:%M:%SZ"
-            ).replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
-        if upd >= cutoff:
-            print(f"Dedup: scheduled run {r.get('id')} already succeeded at "
-                  f"{r.get('updated_at')} — skipping this fire.")
-            return True
-    return False
-
-
 def _resolve_target_date():
-    """Return the date the report should cover.
+    """Return the date a MANUAL run should cover (scheduled runs always
+    report yesterday — see daily_email_schedule.gate).
 
     Defaults to TODAY in Asia/Amman. The optional TARGET_DATE env var lets
     operators re-send any historical day; values accepted:
@@ -552,15 +513,27 @@ def _resolve_target_date():
 
 
 def main():
-    if _scheduled_send_already_happened():
-        return  # Backup cron — a sibling fire already sent the email
-    target_date, label = _resolve_target_date()
-    print(f"Target date (Asia/Amman): {target_date}  [{label}]")
+    scheduled = sched.is_scheduled()
+    if scheduled:
+        # holds until SEND_AT (08:30) and returns yesterday, or None to skip
+        target_date = sched.gate("tgr")
+        if target_date is None:
+            return
+        label = "scheduled"
+    else:
+        target_date, label = _resolve_target_date()
+    print(f"Target business day (Asia/Amman): {target_date}  [{label}]")
     stats = tgr_stats_for_day(target_date)
+    print(f"Window: {stats['start']:%Y-%m-%d %H:%M} -> {stats['end']:%Y-%m-%d %H:%M}")
     print(f"Stats: total={stats['total_orders']} "
           f"named={stats['named_orders']} walk_in={stats['walk_in_orders']} "
           f"unique={stats['unique_named']}")
+    if sched.is_dry_run():
+        print("DRY RUN - email not sent.")
+        return
     send_email(stats)
+    if scheduled:
+        sched.mark_sent("tgr", target_date)
 
 
 if __name__ == "__main__":

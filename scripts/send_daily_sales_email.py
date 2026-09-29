@@ -1,8 +1,9 @@
 """Send a simple daily SALES-BY-CHANNEL email.
 
-Business day = 00:00 of the target day through 03:00 the NEXT morning
-(27 hours, Asia/Amman), so late-night trade counts toward the day it
-belongs to. Sent at 07:00 Amman for the day that just closed.
+Business day = 03:00 of the report day -> 03:00 the next morning (Asia/Amman),
+i.e. the cut-off is 03:00 every night: late-night trade counts toward the day
+it belongs to and no hour appears in two reports. Delivered at SEND_AT
+(08:30) Amman for the day that just closed — see daily_email_schedule.py.
 
 Read-only against Odoo. Python stdlib only — no third-party packages.
 
@@ -11,7 +12,8 @@ Required env vars (GitHub Secrets):
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
   EMAIL_FROM, EMAIL_TO
 Optional:
-  EMAIL_CC, REPLY_TO, TARGET_DATE (YYYY-MM-DD | today | yesterday)
+  EMAIL_CC, EMAIL_CC_EXTRA (extra copies for this report only), REPLY_TO,
+  TARGET_DATE (YYYY-MM-DD | today | yesterday, manual runs), DRY_RUN, SEND_AT
 """
 from __future__ import annotations
 
@@ -25,8 +27,9 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
 
+import daily_email_schedule as sched
+
 TZ = ZoneInfo("Asia/Amman")
-DAY_END_HOUR = 3          # business day runs 00:00 -> 03:00 next morning
 
 # ---- business rules (mirrors the dashboard) ----
 POS_CONFIG_CHANNEL_MAP = {3: "TGR", 2: "Retail", 5: "Retail", 6: "Retail",
@@ -57,7 +60,20 @@ SMTP_PASSWORD = env("SMTP_PASSWORD")
 EMAIL_FROM = env("EMAIL_FROM")
 EMAIL_TO = env("EMAIL_TO")
 EMAIL_CC = env("EMAIL_CC", required=False, default="")
+# Extra copies for THIS report only (the TGR email doesn't get them).
+EMAIL_CC_EXTRA = env("EMAIL_CC_EXTRA", required=False, default="")
 REPLY_TO = env("REPLY_TO", required=False, default="")
+
+
+def cc_recipients():
+    """EMAIL_CC + EMAIL_CC_EXTRA, comma-separated, de-duplicated."""
+    seen, out = set(), []
+    for part in f"{EMAIL_CC},{EMAIL_CC_EXTRA}".split(","):
+        addr = part.strip()
+        if addr and addr.lower() not in seen:
+            seen.add(addr.lower())
+            out.append(addr)
+    return out
 
 
 def odoo_client():
@@ -181,27 +197,21 @@ def _green_room_split(models, uid, tgr_orders):
     return r_net, r_vat, r_n, t_net, t_vat, t_n
 
 
-def business_window(target_date):
-    """00:00 target_date -> 03:00 the next morning (Amman)."""
-    start = datetime.combine(target_date, datetime.min.time(), TZ)
-    end = start + timedelta(days=1, hours=DAY_END_HOUR)
-    return start, end
-
-
 def sales_for_day(target_date):
     uid, models = odoo_client()
-    start_local, end_local = business_window(target_date)
+    # 03:00 -> 03:00 (end exclusive) so consecutive reports never overlap
+    start_local, end_local = sched.business_window(target_date)
     su = start_local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     eu = end_local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     sos = kw(models, uid, "sale.order", "search_read",
-             [[["date_order", ">=", su], ["date_order", "<=", eu],
+             [[["date_order", ">=", su], ["date_order", "<", eu],
                ["state", "in", ["sale", "done"]]]],
              {"fields": ["partner_id", "user_id", "company_id",
                          "amount_untaxed", "amount_tax", "date_order"],
               "limit": 100000})
     poss = kw(models, uid, "pos.order", "search_read",
-              [[["date_order", ">=", su], ["date_order", "<=", eu],
+              [[["date_order", ">=", su], ["date_order", "<", eu],
                 ["state", "in", ["paid", "done", "invoiced"]],
                 ["config_id", "not in", EXCLUDED_POS_CONFIG_IDS]]],
               {"fields": ["partner_id", "config_id", "amount_total",
@@ -332,7 +342,7 @@ def build_html(s):
                letter-spacing:-0.01em">{s['date'].strftime('%A, %d %b %Y')}</h1>
     <div style="color:#71717A;font-size:12px;margin-bottom:22px">
       Business day &middot; {s['start'].strftime('%d %b %H:%M')} &rarr;
-      {s['end'].strftime('%d %b %H:%M')} (incl. after-midnight sales)
+      {s['end'].strftime('%d %b %H:%M')} &middot; cut-off 03:00
     </div>
 
     <div style="background:#15151A;border:1px solid #23232B;border-radius:10px;
@@ -385,7 +395,7 @@ def build_plain(s):
         "Fyxx Daily Sales",
         f"{s['date'].strftime('%A, %d %b %Y')}",
         f"Business day: {s['start'].strftime('%d %b %H:%M')} -> "
-        f"{s['end'].strftime('%d %b %H:%M')} (includes after-midnight sales)",
+        f"{s['end'].strftime('%d %b %H:%M')} (cut-off 03:00)",
         "",
         f"TOTAL: {money(s['total_net'])} JOD net  |  {s['total_orders']:,} orders"
         f"  |  VAT {money(s['total_vat'])}",
@@ -406,70 +416,31 @@ def build_plain(s):
 def send_email(s):
     subject = (f"Fyxx Daily Sales — {s['date'].strftime('%d %b %Y')} — "
                f"{money(s['total_net'])} JOD ({s['total_orders']} orders)")
+    to_list = [r.strip() for r in EMAIL_TO.split(",") if r.strip()]
+    cc_list = cc_recipients()
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    if EMAIL_CC:
-        msg["Cc"] = EMAIL_CC
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
     if REPLY_TO:
         msg["Reply-To"] = REPLY_TO
     msg.attach(MIMEText(build_plain(s), "plain", "utf-8"))
     msg.attach(MIMEText(build_html(s), "html", "utf-8"))
-
-    to_list = [r.strip() for r in EMAIL_TO.split(",") if r.strip()]
-    cc_list = [r.strip() for r in EMAIL_CC.split(",") if r.strip()] if EMAIL_CC else []
 
     print(f"Connecting to {SMTP_HOST}:{SMTP_PORT} as {SMTP_USER} ...")
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
         server.ehlo(); server.starttls(); server.ehlo()
         server.login(SMTP_USER, SMTP_PASSWORD)
         server.sendmail(EMAIL_FROM, to_list + cc_list, msg.as_string())
-    print(f"Sent to {EMAIL_TO}" + (f" (cc {EMAIL_CC})" if EMAIL_CC else "") + " OK.")
-
-
-def _already_sent_today():
-    """True if an earlier *scheduled* run of this workflow already succeeded
-    in the last 12 hours — so the backup cron fires don't double-send."""
-    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
-        return False
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    token = os.environ.get("GITHUB_TOKEN")
-    wf = os.environ.get("WORKFLOW_FILE", "daily-sales-email.yml")
-    cur_id = os.environ.get("GITHUB_RUN_ID", "")
-    if not (repo and token):
-        return False
-    import json
-    import urllib.request
-    url = (f"https://api.github.com/repos/{repo}/actions/workflows/"
-           f"{wf}/runs?status=success&per_page=10")
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-    except Exception as e:
-        sys.stderr.write(f"WARN: dedup check failed: {e}\n")
-        return False   # fail open — better a duplicate than a miss
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
-    for r in data.get("workflow_runs", []):
-        if str(r.get("id")) == cur_id or r.get("event") != "schedule":
-            continue
-        try:
-            upd = datetime.strptime(r.get("updated_at", ""),
-                                    "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
-        if upd >= cutoff:
-            print(f"Dedup: scheduled run {r.get('id')} already sent at "
-                  f"{r.get('updated_at')} — skipping.")
-            return True
-    return False
+    print(f"Sent to {EMAIL_TO}" +
+          (f" (cc {', '.join(cc_list)})" if cc_list else "") + " OK.")
 
 
 def _resolve_target_date():
-    """Default = the day that just closed. Sent at 07:00, that's yesterday."""
+    """Manual runs: default = yesterday (the business day that just closed)."""
     today = datetime.now(TZ).date()
     raw = (os.environ.get("TARGET_DATE") or "").strip().lower()
     if not raw or raw == "yesterday":
@@ -484,18 +455,30 @@ def _resolve_target_date():
 
 
 def main():
-    if _already_sent_today():
-        return
-    target, label = _resolve_target_date()
+    scheduled = sched.is_scheduled()
+    if scheduled:
+        # holds until SEND_AT (08:30) and returns yesterday, or None to skip
+        target = sched.gate("sales")
+        if target is None:
+            return
+        label = "scheduled"
+    else:
+        target, label = _resolve_target_date()
     print(f"Target business day (Asia/Amman): {target}  [{label}]")
     s = sales_for_day(target)
     print(f"Window: {s['start']:%Y-%m-%d %H:%M} -> {s['end']:%Y-%m-%d %H:%M}")
     print(f"Total: {money(s['total_net'])} JOD net across "
-          f"{s['total_orders']} orders; late tail "
+          f"{s['total_orders']} orders; after-midnight tail "
           f"{s['late']['orders']} orders / {money(s['late']['net'])} JOD")
     for name, orders, net, vat in s["rows"]:
         print(f"   {name:10} {orders:>6} orders  {money(net):>12} JOD")
+    print(f"Recipients: to {EMAIL_TO}; cc {', '.join(cc_recipients()) or '-'}")
+    if sched.is_dry_run():
+        print("DRY RUN - email not sent.")
+        return
     send_email(s)
+    if scheduled:
+        sched.mark_sent("sales", target)
 
 
 if __name__ == "__main__":

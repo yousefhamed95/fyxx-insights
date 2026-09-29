@@ -1,30 +1,49 @@
 name: Daily Sales Email
 
-# Sends the previous business day's sales-by-channel summary at 05:00 Amman.
-# Business day = 00:00 -> 03:00 the next morning (27h), so late-night trade
-# is counted on the day it belongs to. Sending at 05:00 is safely after that
-# 03:00 cut-off, so the day is always complete.
+# Delivers yesterday's sales-by-channel report at 08:30 Asia/Amman.
 #
-# 02:00 UTC = 05:00 Asia/Amman (UTC+3 year-round, no DST since 2022).
-# Backup fires because GitHub cron is best-effort; the script's dedup guard
-# means only the first successful scheduled run each morning actually sends.
+# Business day = 03:00 -> 03:00 (cut-off 03:00 every night), so late-night
+# trade belongs to the day it happened and no hour is counted twice.
+#
+# Timing: GitHub's cron is best-effort and for this repo has been starting
+# runs 5-6.5 hours late. So the workflow is triggered EARLY (22:13-06:13
+# Amman) and a scheduled run holds itself until exactly 08:30 before sending
+# (scripts/daily_email_schedule.py). With triggers two hours apart, any
+# delay from 0 to ~10 hours still lands the email at 08:30.
+#
+# One email per day: runs are serialised by the concurrency group, and the
+# sending run leaves a "sent-sales-<date>" artifact that later runs check.
 on:
   schedule:
-    - cron: "0 2 * * *"    # 05:00 Amman — primary
-    - cron: "20 2 * * *"   # 05:20 Amman — backup 1
-    - cron: "0 3 * * *"    # 06:00 Amman — backup 2
-    - cron: "0 4 * * *"    # 07:00 Amman — last resort
+    - cron: "13 19 * * *"   # 22:13 Amman
+    - cron: "13 21 * * *"   # 00:13 Amman
+    - cron: "13 23 * * *"   # 02:13 Amman
+    - cron: "13 1 * * *"    # 04:13 Amman
+    - cron: "13 3 * * *"    # 06:13 Amman (also the late fallback)
   workflow_dispatch:
     inputs:
       target_date:
-        description: "Business day to report. Blank = yesterday. Accepts YYYY-MM-DD, 'today', 'yesterday'."
+        description: "Business day to report. Blank = yesterday. Accepts YYYY-MM-DD, 'today', 'yesterday'. Manual runs send immediately."
         required: false
         default: ""
+      dry_run:
+        description: "Build the report and log it, but do not send the email"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: daily-sales-email
+  cancel-in-progress: false
+
+permissions:
+  contents: write     # keepalive commit (last step)
+  actions: read       # look up the per-day "sent" marker
 
 jobs:
   send:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 345          # a run may hold up to 5.5h for 08:30
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -34,14 +53,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Send daily sales email
+      - name: Build and send (scheduled runs hold until 08:30 Amman)
+        id: send
         env:
-          # used by the dedup guard so backup fires don't double-send
-          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID:     ${{ github.run_id }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_FILE:     daily-sales-email.yml
+          SEND_AT:       "08:30"
+          GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
           ODOO_URL:      ${{ secrets.ODOO_URL }}
           ODOO_DB:       ${{ secrets.ODOO_DB }}
           ODOO_LOGIN:    ${{ secrets.ODOO_LOGIN }}
@@ -53,6 +69,35 @@ jobs:
           EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
           EMAIL_CC:      ${{ secrets.EMAIL_CC }}
+          # extra copies for the sales report only (e.g. Firas)
+          EMAIL_CC_EXTRA: ${{ secrets.SALES_REPORT_CC }}
           REPLY_TO:      ${{ secrets.REPLY_TO }}
           TARGET_DATE:   ${{ inputs.target_date }}
+          DRY_RUN:       ${{ inputs.dry_run }}
         run: python scripts/send_daily_sales_email.py
+
+      - name: Record that this day's report went out
+        if: steps.send.outputs.sent == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.send.outputs.marker }}
+          path: sent-marker.txt
+          retention-days: 5
+
+      # GitHub disables scheduled workflows in public repos after 60 days
+      # without a commit, which would silently stop both daily emails. If
+      # the repo has been quiet for 45+ days, push an empty commit.
+      # (If you push from a local clone later, `git pull --rebase` first.)
+      - name: Keepalive
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        run: |
+          last=$(git log -1 --format=%ct)
+          age=$(( ( $(date +%s) - last ) / 86400 ))
+          echo "Last commit is $age day(s) old."
+          if [ "$age" -ge 45 ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keepalive so the scheduled emails stay enabled"
+            git push
+          fi
