@@ -11,8 +11,10 @@ name: Daily TGR Customer Email
 # (scripts/daily_email_schedule.py). With triggers two hours apart, any
 # delay from 0 to ~10 hours still lands the email at 08:30.
 #
-# One email per day: runs are serialised by the concurrency group, and the
-# sending run leaves a "sent-tgr-<date>" artifact that later runs check.
+# Exactly one email per day: right before sending, a run claims the day by
+# pushing the git tag "sent-tgr-<date>". GitHub rejects a tag that already
+# exists, so only the first run can ever send that day's report; all other
+# triggers skip. Runs are also serialised by the concurrency group.
 # (The keepalive that stops GitHub disabling schedules lives in the Daily
 # Sales Email workflow — one per repo is enough.)
 on:
@@ -39,8 +41,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
-  actions: read       # look up the per-day "sent" marker
+  contents: write     # push the once-per-day claim tag
 
 jobs:
   send:
@@ -78,11 +79,3 @@ jobs:
           TARGET_DATE:   ${{ inputs.target_date }}
           DRY_RUN:       ${{ inputs.dry_run }}
         run: python scripts/send_tgr_daily_email.py
-
-      - name: Record that this day's report went out
-        if: steps.send.outputs.sent == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.send.outputs.marker }}
-          path: sent-marker.txt
-          retention-days: 5

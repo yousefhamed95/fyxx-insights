@@ -430,13 +430,25 @@ def send_email(s):
     msg.attach(MIMEText(build_plain(s), "plain", "utf-8"))
     msg.attach(MIMEText(build_html(s), "html", "utf-8"))
 
+    global EMAIL_ACCEPTED
     print(f"Connecting to {SMTP_HOST}:{SMTP_PORT} as {SMTP_USER} ...")
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-        server.ehlo(); server.starttls(); server.ehlo()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(EMAIL_FROM, to_list + cc_list, msg.as_string())
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+            server.ehlo(); server.starttls(); server.ehlo()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(EMAIL_FROM, to_list + cc_list, msg.as_string())
+            EMAIL_ACCEPTED = True
+    except Exception as e:
+        if not EMAIL_ACCEPTED:
+            raise
+        # the server already took the message; a hiccup while hanging up
+        # must not trigger a retry (that would be a duplicate email)
+        print(f"WARN: email accepted, but the connection closed badly: {e}")
     print(f"Sent to {EMAIL_TO}" +
           (f" (cc {', '.join(cc_list)})" if cc_list else "") + " OK.")
+
+
+EMAIL_ACCEPTED = False   # set once the SMTP server has accepted the message
 
 
 def _resolve_target_date():
@@ -457,13 +469,24 @@ def _resolve_target_date():
 def main():
     scheduled = sched.is_scheduled()
     if scheduled:
-        # holds until SEND_AT (08:30) and returns yesterday, or None to skip
+        # holds until SEND_AT (08:30), then claims the day; None = skip
         target = sched.gate("sales")
         if target is None:
             return
         label = "scheduled"
     else:
         target, label = _resolve_target_date()
+    try:
+        build_and_send(target, label)
+    except BaseException:
+        if scheduled and not EMAIL_ACCEPTED:
+            sched.release("sales", target)     # let a later run retry
+        raise
+    if scheduled:
+        sched.cleanup("sales")
+
+
+def build_and_send(target, label):
     print(f"Target business day (Asia/Amman): {target}  [{label}]")
     s = sales_for_day(target)
     print(f"Window: {s['start']:%Y-%m-%d %H:%M} -> {s['end']:%Y-%m-%d %H:%M}")
@@ -477,8 +500,6 @@ def main():
         print("DRY RUN - email not sent.")
         return
     send_email(s)
-    if scheduled:
-        sched.mark_sent("sales", target)
 
 
 if __name__ == "__main__":

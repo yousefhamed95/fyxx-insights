@@ -19,18 +19,22 @@ Decision rules for a SCHEDULED run (manual runs are never held or deduped):
   * 03:00-SEND_AT  -> report = yesterday; hold until SEND_AT, then send.
   * SEND_AT-20:00  -> report = yesterday; if it has not gone out yet, send now
                       (late, but never silently skipped).
-  * One email per report day: after a scheduled send the workflow uploads a
-    small "sent-<kind>-<date>" artifact; later runs look for it and skip.
-    The workflows also serialise their runs (concurrency group), so a second
-    run can only start after the sender has finished and left its marker.
+  * Exactly one email per report day: right before sending, a run claims the
+    day by pushing the git tag "sent-<kind>-<date>". Git refuses to create a
+    tag that already exists, atomically, on GitHub's side — so however many
+    runs start, only the first can claim the day and every other run skips.
+    (The earlier approach asked GitHub's API "did a run already succeed?";
+    that answer lagged at times and let duplicate emails through.) If
+    building or sending fails, the claim is released so a later run retries;
+    if the claim itself can't be made, the run fails loudly instead of risking
+    a duplicate.
 """
 from __future__ import annotations
 
-import json
 import os
+import subprocess
 import sys
 import time
-import urllib.request
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -83,37 +87,99 @@ def decide(now_local, send_at):
     return "send", now_local.date() - timedelta(days=1), hold
 
 
-def marker_name(kind, report_day):
+def tag_name(kind, report_day):
     return f"sent-{kind}-{report_day:%Y-%m-%d}"
 
 
-def already_sent(kind, report_day):
-    """True if a scheduled run already sent this report (marker artifact).
-    Fails open: if GitHub can't be asked, assume it has not been sent."""
-    if report_day <= LEGACY_SENT_THROUGH:
-        print(f"{report_day} was sent by the previous scheduler - skipping.")
-        return True
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    token = os.environ.get("GITHUB_TOKEN")
-    if not (repo and token):
-        return False
-    name = marker_name(kind, report_day)
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/actions/artifacts"
-        f"?name={name}&per_page=5",
-        headers={"Authorization": f"Bearer {token}",
-                 "Accept": "application/vnd.github+json"})
+def _git(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True,
+                          timeout=90)
+
+
+def is_claimed(kind, report_day):
+    """True if the day's tag exists on GitHub (read live, no API index)."""
+    tag = tag_name(kind, report_day)
+    r = _git("ls-remote", "--tags", "origin", f"refs/tags/{tag}")
+    if r.returncode != 0:
+        raise RuntimeError(f"git ls-remote failed: {r.stderr.strip()}")
+    return bool(r.stdout.strip())
+
+
+def claim(kind, report_day, attempts=3):
+    """Atomically claim the right to send this report. Returns True if this
+    run holds the claim, False if another run already has it. Raises if
+    neither can be established (so the job fails instead of double-sending).
+
+    The tag is ANNOTATED with this run's id and time, so its object is unique:
+    pushing it can never be a silent no-op "already up to date" — if the tag
+    exists, GitHub rejects the push.
+    """
+    tag = tag_name(kind, report_day)
+    run = os.environ.get("GITHUB_RUN_ID", "local")
+    last_err = ""
+    for i in range(attempts):
+        try:
+            if is_claimed(kind, report_day):
+                print(f"{tag} is already claimed - this report went out; skipping.")
+                return False
+        except RuntimeError as e:
+            last_err = str(e)
+        _git("tag", "-d", tag)                  # drop any stale local copy
+        made = _git("-c", "user.name=github-actions[bot]",
+                    "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+                    "tag", "-a", tag, "-m",
+                    f"{tag} claimed by run {run} at {datetime.now(TZ):%Y-%m-%d %H:%M:%S} Amman")
+        if made.returncode != 0:
+            last_err = made.stderr.strip()
+        else:
+            pushed = _git("push", "origin", f"refs/tags/{tag}")
+            if pushed.returncode == 0:
+                print(f"Claimed {tag} - this run sends the email.")
+                return True
+            last_err = pushed.stderr.strip()
+        time.sleep(5 * (i + 1))
+    # The push kept failing. If that's because someone else holds the tag,
+    # skip; otherwise stop loudly rather than risk a duplicate.
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read())
+        if is_claimed(kind, report_day):
+            print(f"{tag} was claimed by another run - skipping.")
+            return False
+    except RuntimeError as e:
+        last_err = str(e)
+    raise RuntimeError(f"could not claim {tag}: {last_err}")
+
+
+def release(kind, report_day):
+    """Give the claim back after a failed build/send so a later run retries."""
+    tag = tag_name(kind, report_day)
+    r = _git("push", "origin", f":refs/tags/{tag}")
+    print(f"Released {tag}." if r.returncode == 0
+          else f"WARN: could not release {tag}: {r.stderr.strip()}")
+
+
+def cleanup(kind, keep_days=14):
+    """Delete this email's claim tags older than keep_days. Never fatal."""
+    prefix = f"sent-{kind}-"
+    try:
+        r = _git("ls-remote", "--tags", "origin", f"refs/tags/{prefix}*")
+        cutoff = datetime.now(TZ).date() - timedelta(days=keep_days)
+        old = []
+        for line in r.stdout.splitlines():
+            ref = line.split("\t")[-1]
+            if ref.endswith("^{}"):
+                continue
+            try:
+                d = datetime.strptime(ref.rsplit("/", 1)[-1][len(prefix):],
+                                      "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if d < cutoff:
+                old.append(f":{ref}")
+        if old:
+            _git("push", "origin", *old)
+            print(f"Removed {len(old)} old claim tag(s).")
     except Exception as e:
-        sys.stderr.write(f"WARN: sent-marker check failed ({e}); "
-                         f"assuming not sent\n")
-        return False
-    found = [a for a in data.get("artifacts", []) if not a.get("expired")]
-    if found:
-        print(f"{name} already exists - this report went out; skipping.")
-    return bool(found)
+        print(f"WARN: tag cleanup skipped ({e})")
 
 
 def _hold_until(target):
@@ -127,8 +193,8 @@ def _hold_until(target):
 
 
 def gate(kind):
-    """For a scheduled run: return the report day to send (after holding until
-    SEND_AT), or None if this run should do nothing."""
+    """For a scheduled run: return the report day this run has CLAIMED and
+    must send (after holding until SEND_AT), or None to do nothing."""
     send_at = send_at_setting()
     now = datetime.now(TZ)
     action, report_day, hold = decide(now, send_at)
@@ -137,25 +203,18 @@ def gate(kind):
     if action == "exit_early":
         print("Outside the sending window for the next report - nothing to do.")
         return None
-    if already_sent(kind, report_day):
+    if report_day <= LEGACY_SENT_THROUGH:
+        print(f"{report_day} was sent by the previous scheduler - skipping.")
         return None
+    try:
+        if is_claimed(kind, report_day):     # cheap check before a long hold
+            print(f"{tag_name(kind, report_day)} already claimed - skipping.")
+            return None
+    except RuntimeError as e:
+        print(f"WARN: {e} (will rely on the atomic claim)")
     if hold > 0:
         target = now + timedelta(seconds=hold)
         print(f"Report for {report_day}: holding {hold / 60:.0f} min "
               f"until {target:%H:%M} Amman.", flush=True)
         _hold_until(target)
-        if already_sent(kind, report_day):   # belt and braces
-            return None
-    return report_day
-
-
-def mark_sent(kind, report_day):
-    """Tell the workflow to upload the per-day 'sent' marker."""
-    name = marker_name(kind, report_day)
-    with open("sent-marker.txt", "w", encoding="utf-8") as fh:
-        fh.write(f"{name} sent {datetime.now(TZ):%Y-%m-%d %H:%M:%S} Amman\n")
-    out = os.environ.get("GITHUB_OUTPUT")
-    if out:
-        with open(out, "a", encoding="utf-8") as fh:
-            fh.write(f"sent=true\nmarker={name}\n")
-    print(f"Marked {name}.")
+    return report_day if claim(kind, report_day) else None
