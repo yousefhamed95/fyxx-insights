@@ -35,6 +35,9 @@ import daily_email_schedule as sched
 # -----------------------------------------------------------------------------
 TZ = ZoneInfo("Asia/Amman")
 TGR_POS_CONFIG_ID = 3   # POS register id for Green Room / Dine-In
+# Customers left out of the TGR summary entirely (orders, revenue, named
+# customers). Talabat is a delivery aggregator, not a Green Room guest.
+EXCLUDED_CUSTOMER_KEYWORDS = ("talabat",)
 
 
 def env(name: str, required: bool = True, default: str | None = None) -> str | None:
@@ -118,6 +121,18 @@ def tgr_stats_for_day(target_date):
                             "amount_total", "amount_tax", "date_order"],
                  "limit": 10000})
 
+    # Drop excluded customers (e.g. Talabat). Done here rather than in the
+    # Odoo domain: a "partner name NOT LIKE" domain would also drop every
+    # walk-in order, because walk-ins have no partner at all.
+    def _excluded(o):
+        nm = (o["partner_id"][1] if o.get("partner_id") else "").lower()
+        return any(k in nm for k in EXCLUDED_CUSTOMER_KEYWORDS)
+
+    dropped = [o for o in orders if _excluded(o)]
+    orders = [o for o in orders if not _excluded(o)]
+    dropped_net = sum(float(o.get("amount_total") or 0) - float(o.get("amount_tax") or 0)
+                      for o in dropped)
+
     total_orders = len(orders)
     walk_in_orders = sum(1 for o in orders if not o.get("partner_id"))
     named_orders = total_orders - walk_in_orders
@@ -143,6 +158,8 @@ def tgr_stats_for_day(target_date):
         "named_revenue_net": sum(c["net"] for c in customers.values()),
         "walk_in_revenue_net": walk_in_net,
         "top_named": sorted(customers.items(), key=lambda x: -x[1]["net"])[:10],
+        "excluded_orders": len(dropped),       # logged only, not in the email
+        "excluded_net": dropped_net,
     }
 
 
@@ -564,6 +581,8 @@ def build_and_send(target_date, label):
     print(f"Stats: total={stats['total_orders']} "
           f"named={stats['named_orders']} walk_in={stats['walk_in_orders']} "
           f"unique={stats['unique_named']}")
+    print(f"Excluded (Talabat etc.): {stats['excluded_orders']} order(s), "
+          f"{stats['excluded_net']:,.0f} JOD net")
     if sched.is_dry_run():
         print("DRY RUN - email not sent.")
         return
