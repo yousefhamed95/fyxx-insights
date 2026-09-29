@@ -75,6 +75,8 @@ jobs:
           EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
           EMAIL_CC:      ${{ secrets.EMAIL_CC }}
+          # extra copies (e.g. Firas) — same secret as the Daily Sales email
+          EMAIL_CC_EXTRA: ${{ secrets.SALES_REPORT_CC }}
           REPLY_TO:      ${{ secrets.REPLY_TO }}
           TARGET_DATE:   ${{ inputs.target_date }}
           DRY_RUN:       ${{ inputs.dry_run }}

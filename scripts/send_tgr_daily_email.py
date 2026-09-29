@@ -58,9 +58,22 @@ EMAIL_TO      = env("EMAIL_TO")
 # Optional — Cc recipients (comma-separated). Used to copy y.hamed@optico.jo
 # on every send so the user has a record of what went out.
 EMAIL_CC      = env("EMAIL_CC", required=False, default="")
+# Optional — extra copies (e.g. Firas), comma-separated.
+EMAIL_CC_EXTRA = env("EMAIL_CC_EXTRA", required=False, default="")
 # Optional — if the actual SMTP sender (Gmail) differs from the address you
 # want replies to go to (y.hamed@optico.jo), set REPLY_TO accordingly.
 REPLY_TO      = env("REPLY_TO", required=False, default="")
+
+
+def cc_recipients():
+    """EMAIL_CC + EMAIL_CC_EXTRA, comma-separated, de-duplicated."""
+    seen, out = set(), []
+    for part in f"{EMAIL_CC},{EMAIL_CC_EXTRA}".split(","):
+        addr = part.strip()
+        if addr and addr.lower() not in seen:
+            seen.add(addr.lower())
+            out.append(addr)
+    return out
 
 
 # -----------------------------------------------------------------------------
@@ -446,12 +459,16 @@ def send_email(stats):
 
     # Outer container is "mixed" so we can ride a PDF attachment alongside
     # the html/plain alternative pair.
+    to_list = [r.strip() for r in EMAIL_TO.split(",") if r.strip()]
+    cc_list = cc_recipients()
+    all_recipients = to_list + cc_list
+
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    if EMAIL_CC:
-        msg["Cc"] = EMAIL_CC
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
     if REPLY_TO:
         msg["Reply-To"] = REPLY_TO
 
@@ -472,10 +489,6 @@ def send_email(stats):
         # Don't fail the whole email if PDF generation hiccups — send w/o attachment
         sys.stderr.write(f"WARN: PDF generation failed, sending without attachment: {e}\n")
 
-    to_list = [r.strip() for r in EMAIL_TO.split(",") if r.strip()]
-    cc_list = [r.strip() for r in EMAIL_CC.split(",") if r.strip()] if EMAIL_CC else []
-    all_recipients = to_list + cc_list
-
     global EMAIL_ACCEPTED
     print(f"Connecting to {SMTP_HOST}:{SMTP_PORT} as {SMTP_USER} ...")
     try:
@@ -492,7 +505,7 @@ def send_email(stats):
         # the server already took the message; a hiccup while hanging up
         # must not trigger a retry (that would be a duplicate email)
         print(f"WARN: email accepted, but the connection closed badly: {e}")
-    cc_label = f" (cc {EMAIL_CC})" if EMAIL_CC else ""
+    cc_label = f" (cc {', '.join(cc_list)})" if cc_list else ""
     print(f"Sent to {EMAIL_TO}{cc_label} OK.")
 
 

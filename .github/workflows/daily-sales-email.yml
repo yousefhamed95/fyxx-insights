@@ -70,7 +70,7 @@ jobs:
           EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
           EMAIL_CC:      ${{ secrets.EMAIL_CC }}
-          # extra copies for the sales report only (e.g. Firas)
+          # extra copies (e.g. Firas) — the TGR email uses the same secret
           EMAIL_CC_EXTRA: ${{ secrets.SALES_REPORT_CC }}
           REPLY_TO:      ${{ secrets.REPLY_TO }}
           TARGET_DATE:   ${{ inputs.target_date }}
