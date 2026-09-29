@@ -145,7 +145,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <script>window.FYXX_ROLE = <?php echo json_encode($role); ?>;</script>
 <script src="app.js?v=14"></script>
 <script src="tabs2.js?v=14"></script>
-<script src="growth.js?v=14"></script>
+<script src="growth.js?v=15"></script>
 <?php endif; ?>
 </body>
 </html>

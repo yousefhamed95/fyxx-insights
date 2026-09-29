@@ -214,9 +214,11 @@ window.renderGrowth = function(el, w, ctx){
         (mm && mm.tail > 0
           ? ` <span style="color:#71717A">(core = ${fmtN(mm.arr.length)} products making 95% of revenue; ${fmtN(mm.tail)} long-tail items worth ${fmtM(mm.tailRev, true)} excluded)</span>`
           : ""), 22)+
+    // (the e-commerce login only has E-com, so the channel tip doesn't apply)
+    (window.FYXX_ROLE === "ecom" ? "" :
     `<div class='note'>Tip: select a single channel above (e.g. <b>TGR</b>) for a true
-      menu analysis of that outlet — with all channels on, this is your whole product portfolio.</div>
-     <div class='card'><div id='gMenu'></div></div>
+      menu analysis of that outlet — with all channels on, this is your whole product portfolio.</div>`) +
+    `<div class='card'><div id='gMenu'></div></div>
      <div class='gquads' id='gQuads'></div>
      <div class='card' style='padding:12px;margin-top:14px' id='gMenuTbl'></div>`;
 
