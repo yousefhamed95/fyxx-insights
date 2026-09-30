@@ -70,8 +70,10 @@ jobs:
           EMAIL_FROM:    ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:      ${{ secrets.EMAIL_TO }}
           EMAIL_CC:      ${{ secrets.EMAIL_CC }}
-          # extra copies (e.g. Firas) — the TGR email uses the same secret
-          EMAIL_CC_EXTRA: ${{ secrets.SALES_REPORT_CC }}
+          # Extra copies: Firas (added here at the owner's request; this repo is
+          # public, so the address is visible) + anyone in the optional
+          # SALES_REPORT_CC secret. The TGR workflow uses the same list.
+          EMAIL_CC_EXTRA: "f.abunaffa@myfyxx.com,${{ secrets.SALES_REPORT_CC }}"
           REPLY_TO:      ${{ secrets.REPLY_TO }}
           TARGET_DATE:   ${{ inputs.target_date }}
           DRY_RUN:       ${{ inputs.dry_run }}
