@@ -72,6 +72,9 @@
 .cat-seg button:hover { color: var(--text); }
 .cat-seg button.on { background: var(--cat-gold); color: #17130B; }
 
+.btn.cat-xl { border-color: rgba(201, 169, 110, .55); color: var(--cat-gold-lt); }
+.btn.cat-xl:hover { background: var(--cat-gold); color: #17130B; }
+
 /* ---------- cards ---------- */
 .cat-cards {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 18px;
@@ -159,6 +162,8 @@
 .cat-grid b.gold { color: var(--cat-gold-lt); }
 .cat-grid b.neg, td.neg { color: #F87171; }
 .cat-grid i { display: block; font-style: normal; color: #5E5E66; font-size: 10px; margin-top: 1px; }
+.cat-grid i.cat-net { color: #B9A57E; font-size: 11px; font-weight: 600; margin-top: 3px;
+  font-variant-numeric: tabular-nums; }
 .cat-grid .cv-crit, .cat-grid .cv-out { color: #F87171; }
 .cat-grid .cv-low { color: #F5B544; }
 .cat-grid .cv-ok { color: #4ADE80; }

@@ -69,7 +69,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="streamlit-port.css?v=15">
 <link rel="stylesheet" href="style.css?v=15">
-<link rel="stylesheet" href="catalog.css?v=3">
+<link rel="stylesheet" href="catalog.css?v=4">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
 <body class="<?php echo $authed ? 'role-' . htmlspecialchars(preg_replace('/[^a-z0-9_]/', '', $role)) : ''; ?>">
@@ -149,7 +149,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <script src="app.js?v=15"></script>
 <script src="tabs2.js?v=15"></script>
 <script src="growth.js?v=16"></script>
-<script src="catalog.js?v=3"></script>
+<script src="catalog.js?v=4"></script>
 <?php endif; ?>
 </body>
 </html>

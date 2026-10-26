@@ -68,6 +68,151 @@ function catCover(x, k) {
   return { cls: "high", label: "Long cover", days: d };
 }
 
+/* ---------- professional Excel export (ExcelJS, loaded on first use) ---------- */
+function catLoadExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+    s.onload = () => res(window.ExcelJS);
+    s.onerror = () => rej(new Error("Could not load the Excel library"));
+    document.head.appendChild(s);
+  });
+}
+
+async function catExcel(rows, W, chLabel) {
+  const ExcelJS = await catLoadExcelJS();
+  const C = D.catalog;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Fyxx Executive Insights";
+  wb.created = new Date();
+  const ws = wb.addWorksheet("Catalogue", {
+    views: [{ state: "frozen", ySplit: 4, xSplit: 2, showGridLines: false }],
+    pageSetup: { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+  const F = "Calibri", GOLD = "FFC9A96E", INK = "FF16161A", LINE = "FFE3DED3";
+  const cols = [
+    ["#", 5], ["Product", 46], ["SKU", 20], ["Category", 14], ["Type", 14], ["Supplier", 14],
+    ["Stock level", 11], ["DPLC", 10], ["Price incl. VAT", 12], ["Price excl. VAT", 12],
+    ["Margin JOD", 11], ["Margin %", 10], ["YTD units", 11], ["YTD value (JOD)", 14],
+    ["Cover days", 11], ["Realised GM %", 12], ["Website", 11],
+  ];
+  ws.columns = cols.map(([, w]) => ({ width: w }));
+  const last = String.fromCharCode(64 + cols.length);      // "Q"
+
+  // title block
+  ws.mergeCells(`A1:${last}1`);
+  ws.getCell("A1").value = "Fyxx — Product Catalogue";
+  ws.getCell("A1").font = { name: F, size: 18, bold: true, color: { argb: INK } };
+  ws.mergeCells(`A2:${last}2`);
+  ws.getCell("A2").value =
+    `YTD ${C.ytd_start} → ${dkOf(todayLocal())}  ·  ${chLabel}  ·  stock as of ${C.generated_at.slice(0, 16)}  ·  ${rows.length.toLocaleString("en-US")} products`;
+  ws.getCell("A2").font = { name: F, size: 10, italic: true, color: { argb: "FF6B6B73" } };
+  ws.getRow(1).height = 28;
+
+  // header
+  const hr = ws.getRow(4);
+  cols.forEach(([h], i) => {
+    const c = hr.getCell(i + 1);
+    c.value = h;
+    c.font = { name: F, size: 10, bold: true, color: { argb: GOLD } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: INK } };
+    c.alignment = { vertical: "middle", horizontal: i < 6 ? "left" : "center", wrapText: true };
+    c.border = { bottom: { style: "medium", color: { argb: GOLD } } };
+  });
+  hr.height = 30;
+
+  const COVER_FILL = { crit: "FFFBD5D5", out: "FFFBD5D5", low: "FFFDEBC8", ok: "FFD7F2DF", high: "FFD6EEFA", idle: "FFEDEDEF" };
+  const days = W;
+  rows.forEach(({ x, k }, i) => {
+    const r = 5 + i;
+    const row = ws.getRow(r);
+    const cv = catCover(x, k);
+    const net = x.p ? x.p / (1 + (x.v || 0)) : null;
+    row.values = [
+      i + 1, x.n, x.k || "", x.c, x.t || "", x.s || "",
+      Math.round(x.q),
+      x.d > 0 ? x.d : null,
+      x.p || null,
+      x.p ? { formula: `I${r}/(1+${x.v || 0})`, result: net } : null,
+      (x.p && x.d > 0) ? { formula: `J${r}-H${r}`, result: k.mj } : null,
+      (x.p && x.d > 0) ? { formula: `IF(J${r}>0,K${r}/J${r},"")`, result: k.mp / 100 } : null,
+      Math.round(k.u),
+      Math.round(k.a),
+      { formula: `IF(G${r}<=0,0,IF(M${r}>0,G${r}/(M${r}/${days}),"No sales"))`,
+        result: x.q <= 0 ? 0 : (isFinite(k.cover) ? k.cover : "No sales") },
+      k.rgm == null ? null : k.rgm / 100,
+      x.h ? { text: "View ↗", hyperlink: `${C.store}/products/${x.h}` } : "",
+    ];
+    row.font = { name: F, size: 10, color: { argb: "FF1F1F23" } };
+    ["G", "M", "N"].forEach(c => ws.getCell(`${c}${r}`).numFmt = "#,##0");
+    ["H", "I", "J", "K"].forEach(c => ws.getCell(`${c}${r}`).numFmt = "#,##0.00");
+    ["L", "P"].forEach(c => ws.getCell(`${c}${r}`).numFmt = "0.0%");
+    const cd = ws.getCell(`O${r}`);
+    cd.numFmt = "#,##0";
+    cd.alignment = { horizontal: "center" };
+    cd.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COVER_FILL[cv.cls] } };
+    ws.getCell(`A${r}`).alignment = { horizontal: "center" };
+    ws.getCell(`A${r}`).font = { name: F, size: 9, color: { argb: "FF8A8A93" } };
+    if (x.q <= 0) ws.getCell(`G${r}`).font = { name: F, size: 10, color: { argb: "FFC0392B" }, bold: true };
+    if (k.mj != null && k.mj < 0) ws.getCell(`K${r}`).font = { name: F, size: 10, color: { argb: "FFC0392B" } };
+    if (x.h) ws.getCell(`Q${r}`).font = { name: F, size: 10, color: { argb: "FF0B5CAD" }, underline: true };
+    for (let c = 1; c <= cols.length; c++)
+      row.getCell(c).border = { bottom: { style: "hair", color: { argb: LINE } } };
+  });
+
+  // totals (SUBTOTAL so they follow Excel's filter)
+  const t = 5 + rows.length, endR = t - 1;
+  const tr = ws.getRow(t);
+  tr.getCell(2).value = "Total (visible rows)";
+  tr.getCell(7).value = { formula: `SUBTOTAL(109,G5:G${endR})` };
+  tr.getCell(13).value = { formula: `SUBTOTAL(109,M5:M${endR})` };
+  tr.getCell(14).value = { formula: `SUBTOTAL(109,N5:N${endR})` };
+  [7, 13, 14].forEach(c => tr.getCell(c).numFmt = "#,##0");
+  for (let c = 1; c <= cols.length; c++) {
+    const cell = tr.getCell(c);
+    cell.font = { name: F, size: 10, bold: true, color: { argb: INK } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2EDE3" } };
+    cell.border = { top: { style: "medium", color: { argb: GOLD } } };
+  }
+  ws.autoFilter = { from: "A4", to: `${last}${endR}` };
+
+  // definitions sheet
+  const dsh = wb.addWorksheet("Definitions", {
+    views: [{ showGridLines: false }],
+    pageSetup: { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1 },
+  });
+  dsh.columns = [{ width: 22 }, { width: 90 }];
+  dsh.getCell("A1").value = "How the figures are calculated";
+  dsh.getCell("A1").font = { name: F, size: 14, bold: true };
+  [
+    ["Stock level", "Bottles on hand across all warehouses and companies (Odoo)."],
+    ["DPLC", "Product cost as recorded in Odoo."],
+    ["Price incl. VAT", "Odoo selling price including 16% VAT (same as myfyxx.com)."],
+    ["Price excl. VAT", "Price incl. VAT ÷ 1.16."],
+    ["Margin JOD", "Price excl. VAT − DPLC, per unit."],
+    ["Margin %", "Margin JOD ÷ Price excl. VAT."],
+    ["YTD units / value", `1 January to date in the selected channels (${chLabel}); value in JOD excl. VAT, before order-level discounts.`],
+    ["Cover days", `Stock level ÷ average daily sales (YTD units ÷ ${days} days so far this year).`],
+    ["Realised GM %", "Actual gross margin on YTD sales after discounts / channel pricing."],
+    ["Colours (cover days)", "Red < 15 days or out of stock · Amber < 30 · Green 30–120 · Blue > 120 · Grey no sales."],
+  ].forEach(([a, b], i) => {
+    const r = dsh.getRow(3 + i);
+    r.values = [a, b];
+    r.getCell(1).font = { name: F, size: 10, bold: true };
+    r.getCell(2).font = { name: F, size: 10 };
+    r.getCell(2).alignment = { wrapText: true, vertical: "top" };
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `Fyxx-Catalogue-${dkOf(todayLocal())}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
 function catRows() {
   const C = D.catalog;
   const J = C.channels.map((c, j) => state.channels.has(c) ? j : -1).filter(j => j >= 0);
@@ -125,7 +270,7 @@ function catCard({ x, k }) {
         <div><span>Stock level</span><b class="${x.q <= 0 ? "neg" : ""}">${catInt(x.q)}</b></div>
         <div><span>Cover days</span><b class="cv-${cv.cls}">${cv.days}</b><i>${esc(cv.label)}</i></div>
         <div><span>DPLC</span><b>${x.d > 0 ? catMoney(x.d) : "—"}</b>${x.d > 0 ? "" : "<i>no cost in Odoo</i>"}</div>
-        <div><span>Price</span><b class="gold">${x.p ? catMoney(x.p) : "—"}</b><i>${x.p ? "incl. VAT" : "no price in Odoo"}</i></div>
+        <div><span>Price</span><b class="gold">${x.p ? catMoney(x.p) : "—"}</b><i>${x.p ? "incl. VAT" : "no price in Odoo"}</i>${x.p ? `<i class="cat-net">${catMoney(k.net)} excl. VAT</i>` : ""}</div>
         <div><span>Margin %</span><b>${k.mp == null ? "—" : k.mp.toFixed(1) + "%"}</b>
           <em class="cat-bar"><em style="width:${mpw}%"></em></em></div>
         <div><span>Margin JOD</span><b class="${k.mj != null && k.mj < 0 ? "neg" : ""}">${catMoney(k.mj)}</b><i>per unit</i></div>
@@ -143,7 +288,7 @@ function catTable(rows) {
        class="${CAT_UI.sort === key ? "on" : ""}">${label}${CAT_UI.sort === key ? " ▾" : ""}</th>`;
   return `<div class="cat-table-wrap"><table class="tbl cat-table"><thead><tr>
       <th></th>${th("name", "Product", "left")}<th style="text-align:left">Category</th>
-      ${th("stock", "Stock")}${th("coverAsc", "Cover days")}<th>DPLC</th>${th("price", "Price")}
+      ${th("stock", "Stock")}${th("coverAsc", "Cover days")}<th>DPLC</th>${th("price", "Price incl. VAT")}<th>Price excl. VAT</th>
       ${th("marginPct", "Margin %")}${th("marginJod", "Margin JOD")}
       ${th("units", "YTD units")}${th("value", "YTD value")}<th>Realised GM%</th>
     </tr></thead><tbody>` +
@@ -155,7 +300,7 @@ function catTable(rows) {
         <td style="text-align:left">${esc(x.c)}${x.t ? `<div class="cat-sku">${esc(x.t)}</div>` : ""}</td>
         <td class="${x.q <= 0 ? "neg" : ""}">${catInt(x.q)}</td>
         <td><span class="cat-cover inline ${cv.cls}">${cv.days === "∞" ? "∞" : cv.days}</span></td>
-        <td>${x.d > 0 ? catMoney(x.d) : "<span title='No cost in Odoo' style='color:#71717A'>—</span>"}</td><td class="gold">${x.p ? catMoney(x.p) : "—"}</td>
+        <td>${x.d > 0 ? catMoney(x.d) : "<span title='No cost in Odoo' style='color:#71717A'>—</span>"}</td><td class="gold">${x.p ? catMoney(x.p) : "—"}</td><td>${x.p ? catMoney(k.net) : "—"}</td>
         <td>${k.mp == null ? "—" : k.mp.toFixed(1) + "%"}</td>
         <td class="${k.mj != null && k.mj < 0 ? "neg" : ""}">${catMoney(k.mj)}</td>
         <td>${catInt(k.u)}</td><td>${catInt(k.a)}</td>
@@ -218,7 +363,8 @@ window.renderCatalog = function (el) {
          <button data-v="cards" class="${CAT_UI.view === "cards" ? "on" : ""}" title="Cards">▦ Cards</button>
          <button data-v="list" class="${CAT_UI.view === "list" ? "on" : ""}" title="List">☰ List</button>
        </div>
-       <button class="btn" id="catCsv">⇩ CSV</button>
+       <button class="btn cat-xl" id="catXlsx">⇩ Excel</button>
+       <button class="btn" id="catCsv" title="Plain CSV">CSV</button>
      </div>
      <div id="catBody"></div>
      <div class="note cat-note">Stock = on hand across all warehouses · DPLC = Odoo cost · Price = sales price incl. 16% VAT ·
@@ -272,12 +418,20 @@ window.renderCatalog = function (el) {
     try { localStorage.setItem("fyxx_cat_view", CAT_UI.view); } catch (e) {}
     rerender();
   });
+  const xb = document.getElementById("catXlsx");
+  xb.onclick = async () => {
+    const label = xb.textContent;
+    xb.disabled = true; xb.textContent = "Preparing…";
+    try { await catExcel(rows, W, chLabel); }
+    catch (e) { alert("Excel export failed: " + e.message); console.error(e); }
+    finally { xb.disabled = false; xb.textContent = label; }
+  };
   document.getElementById("catCsv").onclick = () => dlCSV(
     `fyxx-catalogue-${dkOf(todayLocal())}.csv`,
-    ["Product", "SKU", "Category", "Type", "Supplier", "Stock level", "DPLC", "Price (incl. VAT)",
+    ["Product", "SKU", "Category", "Type", "Supplier", "Stock level", "DPLC", "Price (incl. VAT)", "Price (excl. VAT)",
      "Margin %", "Margin JOD (per unit)", "YTD units", "YTD value (JOD excl. VAT)", "Cover days",
      "Realised GM %", "Channels", "Website"],
-    rows.map(({ x, k }) => [x.n, x.k, x.c, x.t, x.s, Math.round(x.q), x.d.toFixed(3), x.p.toFixed(2),
+    rows.map(({ x, k }) => [x.n, x.k, x.c, x.t, x.s, Math.round(x.q), x.d.toFixed(3), x.p.toFixed(2), k.net ? k.net.toFixed(2) : "",
       k.mp == null ? "" : k.mp.toFixed(1), k.mj == null ? "" : k.mj.toFixed(2), Math.round(k.u),
       k.a.toFixed(0), x.q <= 0 ? 0 : (isFinite(k.cover) ? Math.round(k.cover) : "no recent sales"),
       k.rgm == null ? "" : k.rgm.toFixed(1), chLabel,
