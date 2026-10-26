@@ -22,6 +22,13 @@ if (!isset($_SESSION['fyxx_auth']) || $_SESSION['fyxx_auth'] !== 1) {
     exit;
 }
 require __DIR__ . '/role_filter.php';
+// logins limited to specific data files (e.g. catalogue-only) get no live feed
+if (fyxx_role_files(fyxx_role()) !== null) {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo '{"error":"not available for this login"}';
+    exit;
+}
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');

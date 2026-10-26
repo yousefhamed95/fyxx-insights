@@ -215,11 +215,33 @@ function updateSyncLabel(){
 }
 
 /* ================= data load ================= */
+async function fetchCatalog(){
+  // optional: a missing catalogue must never stop the rest of the dashboard
+  try { const r = await fetch("data.php?f=catalog"); return r.ok ? await r.json() : null; }
+  catch (e) { return null; }
+}
+
 async function loadAll(){
+  if (IS_CATALOG_ONLY){                     // catalogue-only login
+    const [meta, cat] = await Promise.all([
+      fetch("data.php?f=meta").then(r => { if (!r.ok) throw new Error("meta HTTP " + r.status); return r.json(); }),
+      fetchCatalog()]);
+    D.meta = meta; D.catalog = cat;
+    const chans = (cat && cat.channels) || [];
+    state.allChannels = [...chans];
+    state.channels = new Set(chans);
+    updateSyncLabel();
+    document.getElementById("footer").innerHTML =
+      `Fyxx Product Catalogue · read-only · Odoo + myfyxx.com · data synced ${esc((cat && cat.generated_at) || D.meta.generated_at)} (Amman)`;
+    return;
+  }
   const names = ["meta","orders","sostates","delivery","lines","pnl"];
-  const res = await Promise.all(names.map(n => fetch("data.php?f="+n).then(r=>{
-    if(!r.ok) throw new Error(n+" HTTP "+r.status); return r.json(); })));
+  const [res, cat] = await Promise.all([
+    Promise.all(names.map(n => fetch("data.php?f="+n).then(r=>{
+      if(!r.ok) throw new Error(n+" HTTP "+r.status); return r.json(); }))),
+    fetchCatalog()]);
   names.forEach((n,i)=> D[n]=res[i]);
+  D.catalog = cat;
 
   const od = D.orders;
   O = od.ts.map((ts,i)=>{
@@ -306,7 +328,7 @@ function yearsWithData(df){
 const SCOPES = ["Today","Yesterday","MTD","YTD","Custom"];
 const TABS_ALL = [
   ["brief","◆ Brief"], ["exec","❖ Executive Summary"], ["growth","◉ Growth"],
-  ["shifts","◷ Online & Shifts"],
+  ["catalog","◈ Catalogue"], ["shifts","◷ Online & Shifts"],
   ["pace","▲ Pacing"], ["profit","◯ Profitability"], ["pnl","Σ P&L"],
   ["sku","❒ Products"], ["loss","※ Loss Orders"], ["alerts","⚑ Alerts"],
   ["trends","⌁ Trends"], ["channels","⌬ Channels"], ["customers","◐ Customers"],
@@ -315,9 +337,14 @@ const TABS_ALL = [
 // The e-commerce login only receives E-com data (enforced on the server in
 // role_filter.php). The company-wide P&L and the channel-comparison tab
 // don't apply to a single channel, so they're hidden for that login.
+// The 'catalog' login (catalogue only, all channels) sees just that tab; the
+// server gives it the catalogue and nothing else (role_filter.php).
+const IS_CATALOG_ONLY = (window.FYXX_ROLE === "catalog");
 const TABS = (window.FYXX_ROLE === "ecom")
   ? TABS_ALL.filter(([id]) => !["pnl", "channels"].includes(id))
+  : IS_CATALOG_ONLY ? TABS_ALL.filter(([id]) => id === "catalog")
   : TABS_ALL;
+if (IS_CATALOG_ONLY) state.tab = "catalog";
 function buildFilters(){
   const sp = document.getElementById("scopePills");
   sp.innerHTML = SCOPES.map(s=>`<button class="pillbtn ${s===state.scope?"on":""}" data-s="${s}">${s}</button>`).join("");
@@ -1028,9 +1055,12 @@ function renderPnl(el, w, ctx){
 /* ================= main render ================= */
 function render(){
   const w = scopeWindow();
-  const ctx = renderKPIs(w);
-  buildTicker(ctx.cur, ctx.prv, w.label);
-  buildScopeStrip(w);
+  let ctx = { cur: [], prv: [] };
+  if (!IS_CATALOG_ONLY){          // the catalogue-only login has no sales feed
+    ctx = renderKPIs(w);
+    buildTicker(ctx.cur, ctx.prv, w.label);
+    buildScopeStrip(w);
+  }
   document.querySelectorAll(".panel").forEach(p=>p.classList.remove("on"));
   const el = document.getElementById("p-"+state.tab);
   el.classList.add("on");
@@ -1038,6 +1068,7 @@ function render(){
     brief:renderBrief, exec:renderExec, growth:window.renderGrowth,
     shifts:window.renderShifts,
     pace:renderPacing, profit:renderProfit, pnl:renderPnl,
+    catalog:window.renderCatalog,
     sku:window.renderSku, loss:window.renderLoss, alerts:window.renderAlerts,
     trends:window.renderTrends, channels:window.renderChannels2,
     customers:window.renderCustomers2, cohorts:window.renderCohorts,
@@ -1059,6 +1090,7 @@ function render(){
     return;
   }
   document.getElementById("loading").style.display = "none";
+  if (IS_CATALOG_ONLY) return;     // no live sales feed for the catalogue-only login
 
   // Keep it live: re-pull today's orders from Odoo every 60s and refresh the
   // headline KPIs + ticker in place (no full-tab redraw, so no scroll jump).

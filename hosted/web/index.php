@@ -66,12 +66,13 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <meta name="robots" content="noindex, nofollow">
 <title>Fyxx Executive Insights</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="streamlit-port.css?v=14">
-<link rel="stylesheet" href="style.css?v=14">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="streamlit-port.css?v=15">
+<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="catalog.css?v=3">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
 </head>
-<body>
+<body class="<?php echo $authed ? 'role-' . htmlspecialchars(preg_replace('/[^a-z0-9_]/', '', $role)) : ''; ?>">
 <?php if (!$authed): ?>
 <div class="login-wrap">
   <form class="login" method="post" action="./">
@@ -92,7 +93,8 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
     <div class="topbar">
       <div class="brand-head">
         <span class="brand-name">Fyxx</span>
-        <span class="brand-sub"><?php echo $is_ecom ? 'E-commerce' : 'Executive Insights'; ?></span>
+        <span class="brand-sub"><?php echo $is_ecom ? 'E-commerce'
+            : ($role === 'catalog' ? 'Product Catalogue' : 'Executive Insights'); ?></span>
       </div>
       <div class="topbar-right">
         <span id="lastupd" class="sync-note">–</span>
@@ -102,9 +104,9 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
     </div>
     <div id="tickerSlot"></div>
 
-    <div class="flabel" style="margin-top:2px">Period</div>
-    <div class="pills" id="scopePills"></div>
-    <div class="dates" id="customDates">
+    <div class="flabel period-ctl" style="margin-top:2px">Period</div>
+    <div class="pills period-ctl" id="scopePills"></div>
+    <div class="dates period-ctl" id="customDates">
       <input type="date" id="dFrom"> <span style="color:var(--muted)">→</span>
       <input type="date" id="dTo">
       <button class="btn" id="dApply">Apply</button>
@@ -124,6 +126,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
     <div class="panel" id="p-brief"></div>
     <div class="panel" id="p-exec"></div>
     <div class="panel" id="p-growth"></div>
+    <div class="panel" id="p-catalog"></div>
     <div class="panel" id="p-shifts"></div>
     <div class="panel" id="p-pace"></div>
     <div class="panel" id="p-profit"></div>
@@ -143,9 +146,10 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script>window.FYXX_ROLE = <?php echo json_encode($role); ?>;</script>
-<script src="app.js?v=14"></script>
-<script src="tabs2.js?v=14"></script>
-<script src="growth.js?v=15"></script>
+<script src="app.js?v=15"></script>
+<script src="tabs2.js?v=15"></script>
+<script src="growth.js?v=16"></script>
+<script src="catalog.js?v=2"></script>
 <?php endif; ?>
 </body>
 </html>

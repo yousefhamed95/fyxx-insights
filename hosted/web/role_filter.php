@@ -15,11 +15,38 @@ if (basename(isset($_SERVER['SCRIPT_FILENAME']) ? $_SERVER['SCRIPT_FILENAME'] : 
 // role => allowed channels (null = all channels)
 function fyxx_role_channels($role) {
     $map = array(
-        'admin' => null,
-        'ecom'  => array('E-com'),
+        'admin'   => null,
+        'ecom'    => array('E-com'),
+        'catalog' => null,              // catalogue only (see below), all channels
     );
     // an unknown role sees nothing
     return array_key_exists($role, $map) ? $map[$role] : array();
+}
+
+// role => data files it may download (null = all). The catalogue-only login
+// gets the product catalogue and nothing else: no orders, customers, P&L.
+function fyxx_role_files($role) {
+    $map = array(
+        'catalog' => array('meta', 'catalog'),
+    );
+    return array_key_exists($role, $map) ? $map[$role] : null;
+}
+
+// catalog.json: keep only the allowed channels' YTD / 90-day figures
+function fyxx_filter_catalog($d, $allowed) {
+    $idx = array();
+    foreach ($d['channels'] as $j => $c) {
+        if (in_array($c, $allowed, true)) { $idx[] = $j; }
+    }
+    $d['channels'] = array_map(function ($j) use ($d) { return $d['channels'][$j]; }, $idx);
+    foreach ($d['items'] as $k => $it) {
+        foreach (array('u', 'a', 'm', 'r') as $col) {
+            $vals = array();
+            foreach ($idx as $j) { $vals[] = isset($it[$col][$j]) ? $it[$col][$j] : 0; }
+            $d['items'][$k][$col] = $vals;
+        }
+    }
+    return $d;
 }
 
 function fyxx_role() {

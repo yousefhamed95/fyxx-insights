@@ -539,6 +539,210 @@ def fetch_lines():
 
 
 # =============================================================================
+# 4b) Product catalogue (Catalogue tab): photo, stock, DPLC, price, YTD per
+#     channel. Built from the same lines + channel rules as the rest of the
+#     dashboard; photos matched to the Fyxx website (Shopify) by SKU.
+# =============================================================================
+SHOPIFY_STORE = "https://myfyxx.com"
+CATALOG_CHANNELS = ["E-com", "Retail", "TGR", "B2B", "DF"]
+COVER_WINDOW_DAYS = 90
+# category-path fragments that are NOT stocked retail products (kitchen,
+# by-the-glass pours, dine-in drinks, cocktails, vouchers, recipes, bundles)
+_CATALOG_EXCLUDE = ("food", "btg", "(dine-in)", "(di)", "cocktail", "tasting card",
+                    "gift card", "coffee", "saleable", "bundle", "sub-recipe",
+                    "raw material", "menu item", "rewards")
+# product names that are charges / placeholders, not products
+_CATALOG_EXCLUDE_NAMES = ("corkage", "ticket", "custom shopify product", "voucher",
+                          "gift card", "delivery fee", "service charge")
+
+
+def _http_get(url, timeout=60):
+    """GET via urllib, falling back to the curl binary (Shopify's Cloudflare
+    sometimes rejects Python's TLS client)."""
+    import subprocess
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; FyxxInsights/1.0)",
+            "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except Exception:
+        exe = "curl.exe" if os.name == "nt" else "curl"
+        out = subprocess.run([exe, "-s", "-f", "-m", str(timeout), url],
+                             capture_output=True, timeout=timeout + 30)
+        if out.returncode != 0:
+            raise RuntimeError(f"fetch failed ({out.returncode}): {url}")
+        return out.stdout
+
+
+def fetch_shopify_images(cache_dir):
+    """{sku: [image_url, handle]} from the public store catalogue. Falls back
+    to the last good copy if the store can't be reached."""
+    import time as _time
+    cache = Path(cache_dir) / "shopify_images.json"
+    print("Fetching Fyxx website catalogue (photos)...")
+    out = {}
+    try:
+        page = 1
+        while page < 60:
+            data = json.loads(_http_get(
+                f"{SHOPIFY_STORE}/products.json?limit=250&page={page}"))
+            prods = data.get("products") or []
+            if not prods:
+                break
+            for p in prods:
+                imgs = p.get("images") or []
+                by_id = {i.get("id"): i.get("src") for i in imgs}
+                first = imgs[0]["src"] if imgs else ""
+                for v in p.get("variants") or []:
+                    sku = (v.get("sku") or "").strip()
+                    if not sku:
+                        continue
+                    fi = v.get("featured_image") or {}
+                    src = fi.get("src") or by_id.get(fi.get("id")) or first
+                    out[sku] = [src or "", p.get("handle") or ""]
+            page += 1
+            _time.sleep(0.4)
+        if out:
+            cache.write_text(json.dumps(out), encoding="utf-8")
+        print(f"  website SKUs: {len(out)}")
+        return out
+    except Exception as e:
+        print(f"  WARN: website catalogue not reachable ({e}); using cache")
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+
+def build_catalog(orders, lines, cache_dir):
+    print("Building product catalogue...")
+    y0 = int(datetime(NOW.year, 1, 1, tzinfo=TZ).timestamp())
+    r0 = int((NOW - timedelta(days=COVER_WINDOW_DAYS)).timestamp())
+
+    # order -> (timestamp, channels). A split Green Room order shows up twice
+    # (Retail + TGR); its lines are then classified by product category.
+    omap = {}
+    for o in orders:
+        k = (o["source"], o["order_id"])
+        ts, chs = omap.get(k, (o["ts"], set()))
+        chs.add(o["channel"])
+        omap[k] = (ts, chs)
+
+    # stock on hand: all internal locations, all companies
+    quants = kw("stock.quant", "search_read",
+                [[["location_id.usage", "=", "internal"]]],
+                {"fields": ["product_id", "quantity"], "limit": 500000})
+    stock = defaultdict(float)
+    for q in quants:
+        if q.get("product_id"):
+            stock[q["product_id"][0]] += float(q.get("quantity") or 0)
+
+    sold_ytd = {pid for (src, oid, pid, q, rev, mg) in lines
+                if omap.get((src, oid), (0,))[0] >= y0}
+    pids = sorted({p for p, v in stock.items() if abs(v) > 1e-6} | sold_ytd)
+    prods = {}
+    for i in range(0, len(pids), 1000):
+        for r in kw("product.product", "read", [pids[i:i + 1000]],
+                    {"fields": ["id", "name", "default_code", "list_price",
+                                "standard_price", "categ_id", "taxes_id",
+                                "x_studio_vendor_tags", "type"]}):
+            prods[r["id"]] = r
+    vat_rates = {}
+    tax_ids = sorted({t for r in prods.values() for t in (r.get("taxes_id") or [])})
+    if tax_ids:
+        for t in kw("account.tax", "read", [tax_ids],
+                    {"fields": ["amount", "price_include", "amount_type"]}):
+            vat_rates[t["id"]] = (float(t.get("amount") or 0) / 100.0
+                                  if t.get("price_include") and t.get("amount_type") == "percent"
+                                  else 0.0)
+
+    def path_of(r):
+        return (r["categ_id"][1] if r.get("categ_id") else "") or ""
+
+    keep = {}
+    for pid, r in prods.items():
+        if r.get("type") == "service":
+            continue
+        p = path_of(r).lower()
+        if any(x in p for x in _CATALOG_EXCLUDE):
+            continue
+        nm = (r.get("name") or "").lower()
+        if any(x in nm for x in _CATALOG_EXCLUDE_NAMES):
+            continue
+        keep[pid] = r
+
+    chs = list(CATALOG_CHANNELS)
+    for o in orders:
+        if o["channel"] not in chs:
+            chs.append(o["channel"])
+    ci = {c: i for i, c in enumerate(chs)}
+    agg = defaultdict(lambda: [[0.0] * len(chs) for _ in range(4)])  # u, a, m, r
+    for (src, oid, pid, q, rev, mg) in lines:
+        if pid not in keep:
+            continue
+        ts, och = omap.get((src, oid), (0, set()))
+        if ts < r0 and ts < y0:
+            continue
+        if len(och) == 1:
+            ch = next(iter(och))
+        elif och:   # split Green Room order: classify this line
+            ch = "Retail" if _is_retail_at_green_room(path_of(keep[pid])) else "TGR"
+            if ch not in och:
+                ch = next(iter(och))
+        else:
+            continue
+        j = ci[ch]
+        a = agg[pid]
+        if ts >= y0:
+            a[0][j] += q
+            a[1][j] += rev
+            a[2][j] += mg
+        if ts >= r0:
+            a[3][j] += q
+
+    images = fetch_shopify_images(cache_dir)
+    items = []
+    for pid, r in keep.items():
+        a = agg.get(pid) or [[0.0] * len(chs) for _ in range(4)]
+        if abs(stock.get(pid, 0)) < 1e-6 and not any(a[0]):
+            continue
+        parts = [s.strip() for s in path_of(r).split("/") if s.strip()]
+        if parts and parts[0].lower() == "all":
+            parts = parts[1:]
+        cat = parts[1] if len(parts) > 1 else (parts[0] if parts else "Other")
+        sub = parts[-1] if len(parts) > 2 else ""
+        rate = max((vat_rates.get(t, 0.0) for t in (r.get("taxes_id") or [])), default=0.0)
+        sku = (r.get("default_code") or "").strip()
+        img, handle = (images.get(sku) or ["", ""]) if sku else ["", ""]
+        raw = r.get("x_studio_vendor_tags")
+        items.append({
+            "i": pid, "k": sku, "n": _clean_product_name(r.get("name")),
+            "c": cat, "t": sub,
+            "s": _normalise_supplier(str(raw).strip()) if raw else "",
+            "img": img, "h": handle,
+            "p": r2(r.get("list_price")), "v": round(rate, 4),
+            "d": round(float(r.get("standard_price") or 0), 3),
+            "q": r2(stock.get(pid, 0)),
+            "u": [r2(x) for x in a[0]], "a": [r2(x) for x in a[1]],
+            "m": [r2(x) for x in a[2]], "r": [r2(x) for x in a[3]],
+        })
+    items.sort(key=lambda x: -sum(x["a"]))
+    with_img = sum(1 for x in items if x["img"])
+    print(f"  catalogue items: {len(items)} ({with_img} with website photo)")
+    return {
+        "generated_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+        "ytd_start": f"{NOW.year}-01-01",
+        "days_ytd": (NOW.date() - datetime(NOW.year, 1, 1).date()).days + 1,
+        "cover_window_days": COVER_WINDOW_DAYS,
+        "store": SHOPIFY_STORE,
+        "channels": chs,
+        "items": items,
+    }
+
+
+# =============================================================================
 # 5) P&L expense lines — per (day, account) so ANY window is exact
 # =============================================================================
 def fetch_pnl():
@@ -660,6 +864,14 @@ def build_files():
             for pid in p_i.list
         ],
     }
+
+    # Catalogue tab. Never allowed to break the main export: on failure the
+    # previous catalog.json stays in place.
+    try:
+        cache_dir = os.environ.get("LOCAL_OUT_DIR") or str(Path(__file__).parent / "out")
+        files["catalog.json"] = build_catalog(orders, lines, cache_dir)
+    except Exception as e:
+        print(f"WARN: catalogue skipped: {e}")
 
     pnl_rows, pnl_accounts = fetch_pnl()
     files["pnl.json"] = {"rows": pnl_rows, "accounts": pnl_accounts}
