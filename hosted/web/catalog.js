@@ -10,8 +10,8 @@
                   Odoo's own "Margin (Fyxx)" definition.
    - YTD        = 1 Jan → today, selected channels, value excl. VAT, before
                   order-level discounts.
-   - Cover days = stock ÷ average daily units sold in the selected channels
-                  over the last 90 days.                                    */
+   - Cover days = bottles in stock ÷ average monthly sales (YTD, selected
+                  channels), expressed in days — Zeid's definition.         */
 "use strict";
 
 const CAT_UI = {
@@ -51,7 +51,9 @@ function catMetrics(x, J, W) {
   const ok = net > 0 && x.d > 0;
   const mj = ok ? net - x.d : null;
   const mp = ok ? (net - x.d) / net * 100 : null;
-  const rate = r / W;
+  // Zeid's definition: cover = bottles in stock ÷ average monthly sales.
+  // W = days elapsed YTD, so this is (stock ÷ avg monthly units) in days.
+  const rate = u / W;
   const cover = x.q <= 0 ? 0 : (rate > 0 ? x.q / rate : Infinity);
   return { u, a, m, r, net, mj, mp, cover, rgm: a ? m / a * 100 : null };
 }
@@ -69,7 +71,7 @@ function catCover(x, k) {
 function catRows() {
   const C = D.catalog;
   const J = C.channels.map((c, j) => state.channels.has(c) ? j : -1).filter(j => j >= 0);
-  const W = C.cover_window_days || 90;
+  const W = C.days_ytd || 1;   // average daily (= monthly / 30) YTD sales pace
   const q = CAT_UI.q.trim().toLowerCase();
   let rows = C.items.map(x => ({ x, k: catMetrics(x, J, W) }));
   // only products that matter for the selected channels: in stock, or sold YTD there
@@ -221,7 +223,7 @@ window.renderCatalog = function (el) {
      <div id="catBody"></div>
      <div class="note cat-note">Stock = on hand across all warehouses · DPLC = Odoo cost · Price = sales price incl. 16% VAT ·
        Margin = net price excl. VAT − DPLC (per unit) · YTD = 1 Jan → today in the selected channels, excl. VAT ·
-       Cover days = stock ÷ average daily units sold in the selected channels over the last ${W} days.</div>`;
+       Cover days = bottles in stock ÷ average monthly sales (YTD, selected channels), shown in days.</div>`;
 
   const body = document.getElementById("catBody");
   const draw = () => {
