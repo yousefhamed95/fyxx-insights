@@ -149,7 +149,7 @@ if ($authed) { @include __DIR__ . '/refresh_check.php'; }
 <script src="app.js?v=15"></script>
 <script src="tabs2.js?v=15"></script>
 <script src="growth.js?v=16"></script>
-<script src="catalog.js?v=4"></script>
+<script src="catalog.js?v=5"></script>
 <?php endif; ?>
 </body>
 </html>

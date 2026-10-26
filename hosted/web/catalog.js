@@ -92,10 +92,10 @@ async function catExcel(rows, W, chLabel) {
   });
   const F = "Calibri", GOLD = "FFC9A96E", INK = "FF16161A", LINE = "FFE3DED3";
   const cols = [
-    ["#", 5], ["Product", 46], ["SKU", 20], ["Category", 14], ["Type", 14], ["Supplier", 14],
-    ["Stock level", 11], ["DPLC", 10], ["Price incl. VAT", 12], ["Price excl. VAT", 12],
-    ["Margin JOD", 11], ["Margin %", 10], ["YTD units", 11], ["YTD value (JOD)", 14],
-    ["Cover days", 11], ["Realised GM %", 12], ["Website", 11],
+    ["#", 6], ["Product", 50], ["SKU", 23], ["Category", 14], ["Type", 14], ["Supplier", 16],
+    ["Stock level", 12], ["DPLC", 11], ["Price incl. VAT", 13], ["Price excl. VAT", 13],
+    ["Margin JOD", 13], ["Margin %", 12], ["YTD units", 12], ["YTD value (JOD)", 13],
+    ["Cover days", 12], ["Realised GM %", 13], ["Website", 12],
   ];
   ws.columns = cols.map(([, w]) => ({ width: w }));
   const last = String.fromCharCode(64 + cols.length);      // "Q"
@@ -117,10 +117,11 @@ async function catExcel(rows, W, chLabel) {
     c.value = h;
     c.font = { name: F, size: 10, bold: true, color: { argb: GOLD } };
     c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: INK } };
-    c.alignment = { vertical: "middle", horizontal: i < 6 ? "left" : "center", wrapText: true };
+    // labels sit top-left of the cell so Excel's filter arrow (bottom-right) never covers them
+    c.alignment = { vertical: "top", horizontal: "left", wrapText: true };
     c.border = { bottom: { style: "medium", color: { argb: GOLD } } };
   });
-  hr.height = 30;
+  hr.height = 36;
 
   const COVER_FILL = { crit: "FFFBD5D5", out: "FFFBD5D5", low: "FFFDEBC8", ok: "FFD7F2DF", high: "FFD6EEFA", idle: "FFEDEDEF" };
   const days = W;
